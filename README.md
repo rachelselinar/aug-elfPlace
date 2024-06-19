@@ -31,7 +31,7 @@ The main features of ``aug-elfPlace`` include:
 ### <a name="overview"></a> Hybrid Placement Framework
 The hybrid placement framework integrates a flat analytical placer such as ``aug-elfPlace`` with [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s place and route tool using the [VPR legalizer]().
 
-<p align="center>
+<p align="center">
 <img src=/images/aug-elfPlace_VPR_hybrid_placement_framework.png height="500">
 </p>
 
@@ -44,8 +44,8 @@ Please refer to our [paper](#publications) for more details on the performance o
 ### <a name="target_arch"></a>Target Architecture
 ``aug-elfPlace`` can target simplified versions of the Ultrascale and Stratix-IV architectures and requires the locations of the fixed input-output (IO) and phase-locked loop (PLL) blocks to be provided as part of the input, similar to [DREAMPlaceFPGA](https://github.com/rachelselinar/DREAMPlaceFPGA).
 
-<p align="center>
-<img src=/images/aug-elfPlace_VPR_hybrid_placement_framework.png height="500">
+<p align="center">
+<img src=/images/US_SIV_arch.png height="500">
 </p>
 
 FPGA architectures consist of DSP blocks and different memory blocks - BRAM, M9K, and M144K, with Slice blocks that consist of LUT, FF, and adder instances. 
