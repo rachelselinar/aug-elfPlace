@@ -1,0 +1,75 @@
+Refer to [ISPD'2016 contest](http://www.ispd.cc/contests/16/ispd2016_contest.html) for more details.
+
+A 'design.lc' file has been included in the FPGA bookshelf format.
+
+=======================================================================================
+                     Bookshelf Format for FPGA Placement
+=======================================================================================
+
+This document explains the differences (new features) of FPGA placement bookshelf format.
+
+1. Library cell (.lib file):
+  - Each instance has a corresponding master library cell. It is defined in nodes file;
+  - All library cells are defined in design.lib, a new addition to bookshelf format;
+
+2. PIN:
+  - All pins are defined in library file (.lib) cell section;
+  - Each instance has the same number of pins as defined in its master cell;
+  - Not all the pins of an instance are used. Some are left unconnected;
+  - Library file defines certain attributes associated with pins: direction, clock, and control;
+  - Each net is a collection of pins, as specified in nets file;
+
+3. Layout file (.scl file)
+  - Layout file is re-defined to accomodate FPGA placement;
+  - There are two section in layout file: site definition section and site map section;
+  - SITE definition speicifies available resources (LUT/FF/RAMB/DSP) that can be placed in one site;
+  - RESOURCES specifies cell names that correspond to certain resource;
+  - SITEMAP specifies the two-dimension array of sites for the entire device/chip:
+
+4. Placement file (.pl file)
+  - The location of an instance has three fields: x-coord, y-coord (to determine the SITE) and BEL (index within the SITE);
+  - In released benchmarks, placement file only contains locations of fixed instances (IBUF/OBUF/BUFGCE etc);
+    These instances' locations, including BEL numbers, are not allowed to change during placement;
+  - Placer's output placement file should contain locations of all instances;
+  - The following diagram shows the BEL number for LUTs/FFs placed inside a SLICE SITE:
+      ==========================
+      |   LUT 15   |   FF 15   |  
+      --------------------------
+      |   LUT 14   |   FF 14   |  
+      --------------------------
+      |   LUT 13   |   FF 13   |  
+      --------------------------
+      |   LUT 12   |   FF 12   |  
+      --------------------------
+      |   LUT 11   |   FF 11   |  
+      --------------------------
+      |   LUT 10   |   FF 10   |  
+      --------------------------
+      |   LUT  9   |   FF  9   |  
+      --------------------------
+      |   LUT  8   |   FF  8   |  
+      --------------------------
+      |   LUT  7   |   FF  7   |  
+      --------------------------
+      |   LUT  6   |   FF  6   |  
+      --------------------------
+      |   LUT  5   |   FF  5   |  
+      --------------------------
+      |   LUT  4   |   FF  4   |  
+      --------------------------
+      |   LUT  3   |   FF  3   |  
+      --------------------------
+      |   LUT  2   |   FF  2   |  
+      --------------------------
+      |   LUT  1   |   FF  1   |  
+      --------------------------
+      |   LUT  0   |   FF  0   |  
+      ==========================
+
+5. Legality Constraints file (.lc file)
+  - SITEPERCOLUMN specifies if the architecture is column-based;
+  - SITEDIMENSIONS and CELLDIMENSIONS provide the width and height of the available site and instance types on the FPGA;
+  - SLICEUNIT, LUTFRACTURE, FFSLICE, FFSLICEUNIT, and FFCTRLS specify the LUT and FF legality constraints within a SLICE;
+  - WLWEIGHT allows the x- and y-direction wirelength computation to be weighted;
+  - ROUTECAP provides the unit pin capacity and the unit horizontal/vertical routing capacity for the FPGA;
+  - SITEOUT (OPTIONAL) specifies the output format for writing out the flat placement solution.

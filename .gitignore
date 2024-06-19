@@ -1,3 +1,7 @@
+#Directories
+build/
+dreamplacefpga/__pycache__
+
 # Prerequisites
 *.d
 

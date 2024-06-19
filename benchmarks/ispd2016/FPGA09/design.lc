@@ -1,0 +1,71 @@
+# Set to 1 only if one site type is available on each column
+SITEPERCOLUMN 1
+
+# Width and Height of each site
+SITEDIMENSIONS
+    SLICE 1.0 1.0
+    DSP 1.0 2.5
+    BRAM 1.0 5.0
+    IO 1.0 1.0
+END SITEDIMENSIONS
+
+#SLICE is equivalent of CLB/LAB and SLICEL is equivalent of BLE/ALM
+SLICEUNIT SLICEL
+    LUT 2
+    FF 2
+END SLICEUNIT
+
+# Dimensions of primitives not part of SITEDIMENSIONS - squared values
+CELLDIMENSIONS
+    FDRE 0.0625 0.0625 #16 FFs in a CLB. One FF takes area of 1/16
+    LUT1 0.0625 0.0625
+    LUT2 0.0625 0.0625
+    LUT3 0.0625 0.0625
+    LUT4 0.125 0.125 #Heuristic for LUT4
+    LUT5 0.125 0.125
+    LUT6 0.125 0.125
+END CELLDIMENSIONS
+
+# Provide Information on LUT fracuturability and max shared inputs
+LUTFRACTURE
+    MAXSHARED 5
+    TYPEINSLICEUNIT 6
+    LUT1 : LUT1 LUT2 LUT3 LUT4
+    LUT2 : LUT1 LUT2 LUT3
+    LUT3 : LUT1 LUT2
+    LUT4 : LUT1
+END LUTFRACTURE
+
+# Provide Information on control signals within SLICE
+# 'HALF' denotes signals available across half SLICE
+# 'FULL' denotes signals available across entire SLICE
+FFSLICE HALF
+    CLK 1
+    SR 1
+    CE 2
+END FFSLICE
+
+# Provide Information on control signals available within a SLICEL for FF
+FFSLICEUNIT
+    CLK 1
+    SR 1
+    CE 2
+END FFSLICEUNIT
+
+# Provide Information on FF control signals being shared: STRICT/SHARED
+# 'STRICT' denotes signals not shared. FF without ctrl signal and FF with ctrl signal cannot share SLICE/SLICEUNIT
+# 'SHARED' denotes FF ctrl signals are shared across SLICE/SLICEUNIT
+FFCTRLS STRICT 
+
+# Wirelength weights if applicable (default is 1.0)
+WLWEIGHT
+    X 0.7
+    Y 1.2
+END WLWEIGHT
+
+# Unit Routing capacity information for pin, horizontal and vertical routes
+ROUTECAP
+    PIN 50
+    H 209
+    V 239
+END ROUTECAP

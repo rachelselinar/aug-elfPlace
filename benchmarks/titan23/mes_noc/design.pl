@@ -1,0 +1,13 @@
+out:uart_tx_out 81 141 0 FIXED
+out:failure_out 94 1 1 FIXED
+clk 2 1 1 FIXED
+rst_n 94 141 0 FIXED
+uart_rx_in 15 1 0 FIXED
+pll_noc_type2:\using_pll:use_noc_pll_2:noc_pll_2|altpll:altpll_component|pll_noc_type2_altpll:auto_generated|wire_pll1_locked  98 141 0 FIXED
+pll_noc_type5:\using_pll:use_noc_pll_5:noc_pll_5|altpll:altpll_component|pll_noc_type5_altpll:auto_generated|wire_pll1_locked  97 1 0 FIXED
+pll_noc_type6:\using_pll:use_noc_pll_6:noc_pll_6|altpll:altpll_component|pll_noc_type6_altpll:auto_generated|wire_pll1_locked  95 141 0 FIXED
+pll_noc_type7:\using_pll:use_noc_pll_7:noc_pll_7|altpll:altpll_component|pll_noc_type7_altpll:auto_generated|wire_pll1_locked  96 141 0 FIXED
+pll_noc_type0:\using_pll:separate_clk:noc_pll_0|altpll:altpll_component|pll_noc_type0_altpll:auto_generated|wire_pll1_locked  97 141 0 FIXED
+pll_noc_type1:\using_pll:use_noc_pll_1:noc_pll_1|altpll:altpll_component|pll_noc_type1_altpll:auto_generated|wire_pll1_locked  98 1 0 FIXED
+pll_noc_type3:\using_pll:use_noc_pll_3:noc_pll_3|altpll:altpll_component|pll_noc_type3_altpll:auto_generated|wire_pll1_locked  96 1 0 FIXED
+pll_noc_type4:\using_pll:use_noc_pll_4:noc_pll_4|altpll:altpll_component|pll_noc_type4_altpll:auto_generated|wire_pll1_locked  95 1 0 FIXED

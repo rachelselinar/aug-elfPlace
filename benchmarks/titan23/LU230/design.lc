@@ -1,0 +1,81 @@
+# Set to 1 only if one site type is available on each column
+SITEPERCOLUMN 0
+
+# Width and Height of each site
+SITEDIMENSIONS
+    LAB 1.0 1.0
+    DSP 1.0 4.0
+    M9K 1.0 1.0
+    M144K 1.0 8.0
+    PLL 1.0 1.0
+    io 1.0 1.0
+END SITEDIMENSIONS
+
+#SLICE is equivalent of CLB/LAB and SLICEL is equivalent of BLE/ALM
+SLICEUNIT SLICEL
+    lcell_comb 2
+    dffeas 2
+END SLICEUNIT
+
+# Dimensions of primitives not part of SITEDIMENSIONS - squared values
+CELLDIMENSIONS
+    dffeas 0.05 0.05 #20 FFs in a CLB. One FF takes area of 1/20
+    lcell_comb0 0.05 0.05
+    lcell_comb1 0.05 0.05
+    lcell_comb2 0.05 0.05
+    lcell_comb3 0.05 0.05
+    lcell_comb4 0.05 0.05
+    lcell_comb5 0.05 0.05
+    lcell_comb6 0.05 0.05
+    lcell_comb7 0.1 0.1
+END CELLDIMENSIONS
+
+# Provide Information on LUT fracuturability and max shared inputs
+LUTFRACTURE
+    MAXSHARED 8
+    TYPEINSLICEUNIT 7
+    lcell_comb1 : lcell_comb1 lcell_comb2 lcell_comb3 lcell_comb4 lcell_comb5 lcell_comb6
+    lcell_comb2 : lcell_comb1 lcell_comb2 lcell_comb3 lcell_comb4 lcell_comb5 lcell_comb6
+    lcell_comb3 : lcell_comb1 lcell_comb2 lcell_comb3 lcell_comb4 lcell_comb5
+    lcell_comb4 : lcell_comb1 lcell_comb2 lcell_comb3 lcell_comb4
+    lcell_comb5 : lcell_comb1 lcell_comb2 lcell_comb3
+    lcell_comb6 : lcell_comb1 lcell_comb2
+END LUTFRACTURE
+
+# Provide Information on control signals within SLICE: HALF/FULL
+# 'HALF' denotes signals available across half SLICE
+# 'FULL' denotes signals available across entire SLICE
+FFSLICE FULL 
+    CLK 2
+    CTRL 7
+END FFSLICE
+
+# Provide Information on control signals available within a SLICEL for FF
+FFSLICEUNIT
+    CLK 2
+    CTRL 7
+END FFSLICEUNIT
+
+# Provide Information on FF control signals being shared: STRICT/SHARED
+# 'STRICT' denotes signals not shared. FF without ctrl signal and FF with ctrl signal cannot share SLICE/SLICEUNIT
+# 'SHARED' denotes FF ctrl signals are shared across SLICE/SLICEUNIT
+FFCTRLS SHARED
+
+# Wirelength weights if applicable (default is 1.0)
+#WLWEIGHT
+#    X 0.7
+#    Y 1.2
+#END WLWEIGHT
+
+# Unit Routing capacity information for pin, horizontal and vertical routes
+ROUTECAP
+    PIN 50
+    H 429
+    V 318
+END ROUTECAP
+
+#Add Capacity support for VPR Eg: IO: S=0, Other sites: Z=0
+SITEOUT FORMAT
+    S 0 : io PLL
+    Z 0 : LAB DSP M9K M144K 
+END SITEOUT 
