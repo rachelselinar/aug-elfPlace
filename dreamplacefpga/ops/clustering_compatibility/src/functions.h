@@ -44,6 +44,7 @@ DREAMPLACE_BEGIN_NAMESPACE
 //area[4] = 2.0;
 //area[5] = 2.0;
 
+//Hard-coded version for Ultrascale
 #define DEFINE_LUT_COMPUTE_AREAS_FUNCTION(type) \
     void lut_compute_areas_function(const T winArea, T* area, const int idx, const int lBins) \
     { \
@@ -68,10 +69,51 @@ DREAMPLACE_BEGIN_NAMESPACE
         area[idx+5] = area[idx+4]; \
     }
 
+//Generic version based on lut_fracture
+#define DEFINE_LUT_COMPUTE_AREAS_FUNCTION_GENERIC(type) \
+    void lut_compute_areas_function_generic(const int* lut_fracture, const T winArea, T* area, const int idx, const int lBins) \
+    { \
+        T totalDem = T(0.0); \
+        T dem[16]; \
+        for (int x = 0; x < lBins; ++x) \
+        { \
+            totalDem += area[idx + x]; \
+            dem[x] = area[idx + x]; \
+        } \
+        T space = DREAMPLACE_STD_NAMESPACE::max(winArea - totalDem, T(0.0)); \
+        T totalArea = totalDem + space; \
+        space += space; \
+        \
+        for (int lt = 0; lt < lBins; ++lt) \
+        {\
+            char fracture(0);\
+            T val = T(0.0);\
+            for (int lf = 0; lf < lBins; ++lf)\
+            {\
+                int lfId = lt*lBins + lf;\
+                if (lut_fracture[lfId] == 1)\
+                {\
+                    val += dem[lf];\
+                    fracture = 1;\
+                } else\
+                {\
+                    val += T(2.0)*dem[lf]; \
+                }\
+            }\
+            if (fracture == 1)\
+            {\
+                area[idx+lt] = (val + space)/totalArea;\
+            } else\
+            {\
+                area[idx+lt] = T(2.0);\
+            }\
+        }\
+    }
+
 //Flop
 
 #define DEFINE_FLOP_AGGREGATE_DEMAND_FUNCTION(type) \
-    void flop_aggregate_demand_function(const T* demMap, int dIdx, T* resMap, int rIdx, const int ckSize, const int ceSize) \
+    void flop_aggregate_demand_function(const T* demMap, unsigned int dIdx, T* resMap, int rIdx, const int ckSize, const int ceSize) \
     { \
         for (int ck = 0; ck < ckSize; ++ck) \
         { \

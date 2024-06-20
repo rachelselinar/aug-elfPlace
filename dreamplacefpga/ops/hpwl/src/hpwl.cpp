@@ -13,6 +13,7 @@ template <typename T>
 int computeHPWLLauncher(
         const T* x, const T* y, 
         const T* net_weights,
+        const T* net_weights_x,
         const int* flat_netpin, 
         const int* netpin_start, 
         const unsigned char* net_mask, 
@@ -38,6 +39,7 @@ at::Tensor hpwl_forward(
         at::Tensor flat_netpin,
         at::Tensor netpin_start, 
         at::Tensor net_weights, 
+        at::Tensor net_weights_x, 
         at::Tensor net_mask, 
         double xWeight,
         double yWeight,
@@ -53,6 +55,8 @@ at::Tensor hpwl_forward(
     CHECK_CONTIGUOUS(netpin_start);
     CHECK_FLAT(net_weights); 
     CHECK_CONTIGUOUS(net_weights);
+    CHECK_FLAT(net_weights_x); 
+    CHECK_CONTIGUOUS(net_weights_x);
     CHECK_FLAT(net_mask);
     CHECK_CONTIGUOUS(net_mask);
 
@@ -63,6 +67,7 @@ at::Tensor hpwl_forward(
                     DREAMPLACE_TENSOR_DATA_PTR(pos, scalar_t),
                     DREAMPLACE_TENSOR_DATA_PTR(pos, scalar_t)+pos.numel()/2, 
                     DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t), 
+                    DREAMPLACE_TENSOR_DATA_PTR(net_weights_x, scalar_t), 
                     DREAMPLACE_TENSOR_DATA_PTR(flat_netpin, int), 
                     DREAMPLACE_TENSOR_DATA_PTR(netpin_start, int), 
                     DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char), 
@@ -82,6 +87,7 @@ template <typename T>
 int computeHPWLLauncher(
         const T* x, const T* y, 
         const T* net_weights,
+        const T* net_weights_x,
         const int* flat_netpin, 
         const int* netpin_start, 
         const unsigned char* net_mask, 
@@ -110,7 +116,7 @@ int computeHPWLLauncher(
                 min_y = std::min(min_y, y[flat_netpin[j]]);
                 max_y = std::max(max_y, y[flat_netpin[j]]);
             }
-            hpwl[i] = ((max_x-min_x)*net_weights[i]*xWeight) + ((max_y-min_y)*net_weights[i]*yWeight); 
+            hpwl[i] = ((max_x-min_x)*net_weights_x[i]*xWeight) + ((max_y-min_y)*net_weights[i]*yWeight); 
         }
     }
 

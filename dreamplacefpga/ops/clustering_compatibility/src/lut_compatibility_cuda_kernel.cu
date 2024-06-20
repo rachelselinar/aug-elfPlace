@@ -18,6 +18,8 @@ inline __device__ DEFINE_GAUSSIAN_AUC_FUNCTION(T);
 /// define lut_compute_areas_function
 template <typename T>
 inline __device__ DEFINE_LUT_COMPUTE_AREAS_FUNCTION(T);
+template <typename T>
+inline __device__ DEFINE_LUT_COMPUTE_AREAS_FUNCTION_GENERIC(T);
 
 template <typename T, typename AtomicOp>
 __global__ void fillDemandMapLUT(const T *pos_x,
@@ -79,6 +81,7 @@ __global__ void fillDemandMapLUT(const T *pos_x,
 // Given a Gaussian demand map, compute demand of each instance type based on local window demand distribution
 template <typename T>
 __global__ void computeInstanceAreaLUT(const T *demMap,
+                                       const int* lut_fracture,
                                        const int num_bins_x, 
                                        const int num_bins_y,
                                        const int num_bins_l,
@@ -119,8 +122,8 @@ __global__ void computeInstanceAreaLUT(const T *demMap,
         
         // Compute instance areas based on the window demand distribution
         T winArea = (bin_index_xh - bin_index_xl) * (bin_index_yh - bin_index_yl) * bin_area;
-        lut_compute_areas_function(winArea, areaMap, idx, num_bins_l);
-
+        //lut_compute_areas_function(winArea, areaMap, idx, num_bins_l);
+        lut_compute_areas_function_generic(lut_fracture, winArea, areaMap, idx, num_bins_l);
     }
 }
 
@@ -226,6 +229,7 @@ int fillDemandMapLUTCuda(const T *pos_x,
 // Given a Gaussian demand map, compute demand of each instance type based on local window demand distribution
 template <typename T>
 int computeInstanceAreaLUTCuda(const T *demMap,
+                               const int *lut_fracture,
                                const int num_bins_x, 
                                const int num_bins_y,
                                const int num_bins_l,
@@ -236,7 +240,7 @@ int computeInstanceAreaLUTCuda(const T *demMap,
     int thread_count = 512;
     int block_count = ceilDiv(num_bins_x*num_bins_y, thread_count);
     computeInstanceAreaLUT<<<block_count, thread_count>>>(
-            demMap,
+            demMap, lut_fracture,
             num_bins_x, num_bins_y,
             num_bins_l,
             stddev_x, stddev_y,
@@ -289,7 +293,7 @@ int collectInstanceAreasLUTCuda(const T *pos_x,
         T *demMap);                                                            \
                                                                                \
     template int computeInstanceAreaLUTCuda<T>(                                \
-        const T *demMap, const int num_bins_x, const int num_bins_y,           \
+        const T *demMap, const int* lut_fracture, const int num_bins_x, const int num_bins_y,           \
         const int num_bins_l, const T stddev_x, const T stddev_y,              \
         const int ext_bin, const T bin_area, T *areaMap);                      \
                                                                                \

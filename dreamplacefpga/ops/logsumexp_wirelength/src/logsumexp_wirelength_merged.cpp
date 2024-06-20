@@ -214,6 +214,7 @@ at::Tensor logsumexp_wirelength_backward(
                 DREAMPLACE_TENSOR_DATA_PTR(netpin_start, int),
                 DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                 DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),//Use instead of net_weights_x
                 DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + pos.numel() / 2,
                 netpin_start.numel() - 1,
                 num_threads);

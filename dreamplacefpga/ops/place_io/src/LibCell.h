@@ -1,8 +1,6 @@
 /*************************************************************************
-    > File Name: Macro.h
+    > File Name: LibCell.h
     > Author: Yibo Lin (DREAMPlace), Rachel Selina Rajarathnam (DREAMPlaceFPGA)
-    > Mail: yibolin@utexas.edu
-    > Created Time: Mon 14 Mar 2016 09:22:46 PM CDT
     > Updated: Mar 2021
  ************************************************************************/
 
@@ -60,6 +58,35 @@ class LibCell : public Object
     {
         m_ctrlPins.push_back(s); 
         m_mPinName2Type.insert(std::make_pair(s, 3));
+    }
+    //When LUT and adder are combined together as single cell - need to differentiate the signals
+    void addInputAddPin(std::string& s)
+    {
+        m_inputPins.push_back(s); 
+        if (s == "cin0" || s.find("cin") != std::string::npos)
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 31));
+        } else if (s == "sharein0" || s.find("sharein") != std::string::npos)
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 41));
+        } else
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 21));
+        }
+    }
+    void addOutputAddPin(std::string& s)
+    {
+        m_outputPins.push_back(s); 
+        if (s == "cout0" || s.find("cout") != std::string::npos)
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 30));
+        } else if (s == "shareout0" || s.find("shareout") != std::string::npos)
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 40));
+        } else
+        {
+            m_mPinName2Type.insert(std::make_pair(s, 20));
+        }
     }
 
     // Getters

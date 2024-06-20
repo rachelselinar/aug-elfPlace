@@ -10,7 +10,8 @@ int computeWeightedAverageWirelengthAtomicLauncher(
     const int *netpin_start, const unsigned char *net_mask, int num_nets,
     int num_pins, const T *inv_gamma, T *exp_xy, T *exp_nxy, T *exp_xy_sum,
     T *exp_nxy_sum, T *xyexp_xy_sum, T *xyexp_nxy_sum, V *xy_max, V *xy_min,
-    T *partial_wl, // wirelength of each net
+    //T *partial_wl, // wirelength of each net
+    T *partial_wl_x, T *partial_wl_y, // wirelength of each net
     const T *grad_tensor, T *grad_x_tensor,
     T *grad_y_tensor, // the gradient is partial total wirelength to partial pin position
     int num_threads)
@@ -49,7 +50,7 @@ int computeWeightedAverageWirelengthAtomicLauncher(
         // compute partial wirelength
         computeXExpSumByExpSumXY(
             xyexp_xy_sum, xyexp_nxy_sum, exp_xy_sum, exp_nxy_sum, pin2net_map,
-            net_mask, num_nets, partial_wl, num_threads);
+            net_mask, num_nets, partial_wl_x, partial_wl_y, num_threads);
     }
 
     return 0;
@@ -74,7 +75,8 @@ typedef int V;
 /// @return total wirelength cost.
 std::vector<at::Tensor> weighted_average_wirelength_atomic_forward(
     at::Tensor pos, at::Tensor pin2net_map, at::Tensor flat_netpin,
-    at::Tensor netpin_start, at::Tensor net_weights, at::Tensor net_mask,
+    at::Tensor netpin_start, at::Tensor net_weights,
+    at::Tensor net_weights_x, at::Tensor net_mask,
     at::Tensor inv_gamma, int num_threads)
 {
     CHECK_FLAT(pos);
@@ -102,7 +104,9 @@ std::vector<at::Tensor> weighted_average_wirelength_atomic_forward(
     at::Tensor exp_nxy_sum = at::zeros({2, num_nets}, pos.options());
     at::Tensor xyexp_xy_sum = at::zeros({2, num_nets}, pos.options());
     at::Tensor xyexp_nxy_sum = at::zeros({2, num_nets}, pos.options());
-    at::Tensor partial_wl = at::zeros({num_nets}, pos.options());
+    //at::Tensor partial_wl = at::zeros({num_nets}, pos.options());
+    at::Tensor partial_wl_x = at::zeros({num_nets}, pos.options());
+    at::Tensor partial_wl_y = at::zeros({num_nets}, pos.options());
 
     // it is ok for xy_max and xy_min to be integer
     // we do not really need accurate max/min, just some values to scale x/y
@@ -120,16 +124,22 @@ std::vector<at::Tensor> weighted_average_wirelength_atomic_forward(
                 DREAMPLACE_TENSOR_DATA_PTR(exp_nxy, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_xy_sum, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(exp_nxy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(xyexp_xy_sum, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(xyexp_nxy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(xy_max, V), DREAMPLACE_TENSOR_DATA_PTR(xy_min, V),
-                DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t), nullptr, nullptr, nullptr,
+                //DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t), nullptr, nullptr, nullptr,
+                DREAMPLACE_TENSOR_DATA_PTR(partial_wl_x, scalar_t), 
+                DREAMPLACE_TENSOR_DATA_PTR(partial_wl_y, scalar_t), 
+                nullptr, nullptr, nullptr,
                 num_threads);
         });
 
     if (net_weights.numel())
     {
-        partial_wl.mul_(net_weights.view({num_nets}));
+        //partial_wl.mul_(net_weights.view({num_nets}));
+        partial_wl_x.mul_(net_weights_x.view({num_nets}));
+        partial_wl_y.mul_(net_weights.view({num_nets}));
     }
     // significant speedup is achieved by using summation in ATen
-    auto wl = partial_wl.sum();
+    //auto wl = partial_wl.sum();
+    auto wl = partial_wl_x.sum() + partial_wl_y.sum();
     return {wl, exp_xy, exp_nxy, exp_xy_sum, exp_nxy_sum, xyexp_xy_sum, xyexp_nxy_sum};
 }
 
@@ -156,7 +166,8 @@ at::Tensor weighted_average_wirelength_atomic_backward(
     at::Tensor grad_pos, at::Tensor pos, at::Tensor exp_xy, at::Tensor exp_nxy,
     at::Tensor exp_xy_sum, at::Tensor exp_nxy_sum, at::Tensor xyexp_xy_sum,
     at::Tensor xyexp_nxy_sum, at::Tensor pin2net_map, at::Tensor flat_netpin,
-    at::Tensor netpin_start, at::Tensor net_weights, at::Tensor net_mask,
+    at::Tensor netpin_start, at::Tensor net_weights, 
+    at::Tensor net_weights_x, at::Tensor net_mask,
     at::Tensor inv_gamma, int num_threads)
 {
     CHECK_FLAT(pos);
@@ -205,7 +216,7 @@ at::Tensor weighted_average_wirelength_atomic_backward(
                 num_pins, DREAMPLACE_TENSOR_DATA_PTR(inv_gamma, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_xy, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(exp_nxy, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_xy_sum, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(exp_nxy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(xyexp_xy_sum, scalar_t),
-                DREAMPLACE_TENSOR_DATA_PTR(xyexp_nxy_sum, scalar_t), nullptr, nullptr, nullptr,
+                DREAMPLACE_TENSOR_DATA_PTR(xyexp_nxy_sum, scalar_t), nullptr, nullptr, nullptr, nullptr,
                 DREAMPLACE_TENSOR_DATA_PTR(grad_pos, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + num_pins,
                 num_threads);
@@ -216,6 +227,7 @@ at::Tensor weighted_average_wirelength_atomic_backward(
                     DREAMPLACE_TENSOR_DATA_PTR(netpin_start, int),
                     DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                     DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(net_weights_x, scalar_t),
                     DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + pos.numel() / 2,
                     netpin_start.numel() - 1,
                     num_threads);

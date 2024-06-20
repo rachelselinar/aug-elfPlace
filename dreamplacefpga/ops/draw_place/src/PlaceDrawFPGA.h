@@ -41,8 +41,7 @@ class PlaceDrawFPGA
             EPS = 0, // handle by cairo
             PDF = 1, // handle by cairo
             SVG = 2, // handle by cairo 
-            PNG = 3,  // handle by cairo
-            GDSII = 4
+            PNG = 3  // handle by cairo
         };
         enum DrawContent {
             NONE = 0, 
@@ -58,13 +57,22 @@ class PlaceDrawFPGA
                 const coordinate_type* pin_offset_x, const coordinate_type* pin_offset_y, 
                 const index_type* pin2node_map, 
                 const index_type num_nodes, 
-                const index_type num_movable_nodes, 
+                const index_type num_physical_nodes, 
                 const index_type num_filler_nodes, 
                 const index_type num_pins, 
                 const coordinate_type xl, const coordinate_type yl, const coordinate_type xh, const coordinate_type yh, 
-                const coordinate_type site_width, const coordinate_type row_height, 
                 const coordinate_type bin_size_x, const coordinate_type bin_size_y, 
                 const index_type* node2fence_region_map,
+                const index_type* is_cc_node,
+                const int ffIdx,
+                const int lutIdx,
+                const int addIdx,
+                const int bramIdx,
+                const int m9kIdx,
+                const int m144kIdx,
+                const int dspIdx,
+                const int ioIdx,
+                const int pllIdx,
                 int content = ALL)
             : m_x(x)
             , m_y(y)
@@ -74,18 +82,26 @@ class PlaceDrawFPGA
             , m_pin_offset_y(pin_offset_y)
             , m_pin2node_map(pin2node_map)
             , m_num_nodes(num_nodes)
-            , m_num_movable_nodes(num_movable_nodes)
+            , m_num_physical_nodes(num_physical_nodes)
             , m_num_filler_nodes(num_filler_nodes)
             , m_num_pins(num_pins)
             , m_xl(xl)
             , m_yl(yl)
             , m_xh(xh)
             , m_yh(yh)
-            , m_site_width(site_width)
-            , m_row_height(row_height)
             , m_bin_size_x(bin_size_x)
             , m_bin_size_y(bin_size_y)
             , m_node2fence_region_map(node2fence_region_map)
+            , m_is_cc_node(is_cc_node)
+            , m_ffId(ffIdx)
+            , m_lutId(lutIdx)
+            , m_addId(addIdx)
+            , m_bramId(bramIdx)
+            , m_m9kId(m9kIdx)
+            , m_m144kId(m144kIdx)
+            , m_dspId(dspIdx)
+            , m_ioId(ioIdx)
+            , m_pllId(pllIdx)
             , m_content(content)
         {
         }
@@ -103,10 +119,7 @@ class PlaceDrawFPGA
                 case PDF:
                 case SVG:
                 case PNG:
-                    flag = writeFig(filename.c_str(), 800, 2000, ff);
-                    break;
-                case GDSII:
-                    flag = writeGdsii(filename);
+                    flag = writeFig(filename.c_str(), m_xh*10, m_yh*10, ff);
                     break;
                 default:
                     dreamplacePrint(kERROR, "unknown writing format at line %u\n", __LINE__);
@@ -181,10 +194,10 @@ class PlaceDrawFPGA
                 for (int i = m_num_nodes-m_num_filler_nodes; i < m_num_nodes; ++i)
                 {
                     cairo_rectangle(c, m_x[i], m_y[i], m_node_size_x[i], m_node_size_y[i]);
-                    cairo_set_source_rgba(c, 115/255.0, 115/255.0, 125/255.0, 0.5);
+                    cairo_set_source_rgba(c, 200/255.0, 200/255.0, 200/255.0, 0.5);
                     cairo_fill(c);
                     cairo_rectangle(c, m_x[i], m_y[i], m_node_size_x[i], m_node_size_y[i]);
-                    cairo_set_source_rgba(c, 100/255.0, 100/255.0, 100/255.0, 0.8);
+                    cairo_set_source_rgba(c, 175/255.0, 175/255.0, 175/255.0, 0.8);
                     cairo_stroke(c);
                     if (m_content&NODETEXT)
                     {
@@ -196,67 +209,95 @@ class PlaceDrawFPGA
                     }
                 }
                 // movable & fixed nodes 
-                for (int i = 0; i < m_num_nodes-m_num_filler_nodes; ++i)
+                for (int i = 0; i < m_num_physical_nodes; ++i)
                 {
                     cairo_rectangle(c, m_x[i], m_y[i], m_node_size_x[i], m_node_size_y[i]);
 
-                    switch(m_node2fence_region_map[i])
+                    if (m_is_cc_node[i] == 1)
                     {
-                        case 0: //LUT
-                            {
-                                cairo_set_source_rgba(c, 0, 1, 0, 0.5);
-                                break;
-                            }
-                        case 1: //FF
-                            {
-                                cairo_set_source_rgba(c, 0, 0, 1, 0.5);
-                                break;
-                            }
-                        case 2: //DSP
-                            {
-                                cairo_set_source_rgba(c, 1, 0, 0, 0.5);
-                                break;
-                            }
-                        case 3: //RAM
-                            {
-                                cairo_set_source_rgba(c, 1, 0.5, 0, 0.5);
-                                break;
-                            }
-                        default: //I/O
-                            {
-                                cairo_set_source_rgba(c, 0, 0, 0, 1);
-                            }
+                        cairo_set_source_rgba(c, 1, 50/255, 1, 0.7);
+                    } 
+                    else if (m_node2fence_region_map[i] == m_lutId)
+                    {
+                        cairo_set_source_rgba(c, 0, 1, 0, 0.7);
                     }
+                    else if (m_node2fence_region_map[i] == m_ffId)
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 1, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_dspId)
+                    {
+                        cairo_set_source_rgba(c, 1, 0.5, 0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_bramId || 
+                             m_node2fence_region_map[i] == m_m9kId)
+                    {
+                        cairo_set_source_rgba(c, 175/255.0, 0, 0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_m144kId)
+                    {
+                        cairo_set_source_rgba(c, 1, 107/255, 107/255, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_ioId)
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 100/255, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_pllId)
+                    {
+                        cairo_set_source_rgba(c, 0, 100/255.0, 100/255.0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_addId)
+                    {
+                        cairo_set_source_rgba(c, 100/255.0, 0, 100/255.0, 0.7);
+                    } else
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 0, 1);
+                    }
+
                     cairo_fill(c);
                     cairo_rectangle(c, m_x[i], m_y[i], m_node_size_x[i], m_node_size_y[i]);
 
-                    switch(m_node2fence_region_map[i])
+                    if (m_is_cc_node[i] == 1)
                     {
-                        case 0: //LUT
-                            {
-                                cairo_set_source_rgba(c, 0, 1, 0, 0.8);
-                                break;
-                            }
-                        case 1: //FF
-                            {
-                                cairo_set_source_rgba(c, 0, 0, 1, 0.8);
-                                break;
-                            }
-                        case 2: //DSP
-                            {
-                                cairo_set_source_rgba(c, 1, 0, 0, 0.8);
-                                break;
-                            }
-                        case 3: //RAM
-                            {
-                                cairo_set_source_rgba(c, 1, 0.5, 0, 0.8);
-                                break;
-                            }
-                        default: //I/O
-                            {
-                                cairo_set_source_rgba(c, 0, 0, 0, 1);
-                            }
+                        cairo_set_source_rgba(c, 1, 50/255, 1, 0.7);
+                    } 
+                    else if (m_node2fence_region_map[i] == m_lutId)
+                    {
+                        cairo_set_source_rgba(c, 0, 1, 0, 0.7);
                     }
+                    else if (m_node2fence_region_map[i] == m_ffId)
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 1, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_dspId)
+                    {
+                        cairo_set_source_rgba(c, 1, 0.5, 0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_bramId || 
+                             m_node2fence_region_map[i] == m_m9kId)
+                    {
+                        cairo_set_source_rgba(c, 175/255.0, 0, 0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_m144kId)
+                    {
+                        cairo_set_source_rgba(c, 1, 107/255, 107/255, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_ioId)
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 100/255, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_pllId)
+                    {
+                        cairo_set_source_rgba(c, 0, 100/255.0, 100/255.0, 0.7);
+                    }
+                    else if (m_node2fence_region_map[i] == m_addId)
+                    {
+                        cairo_set_source_rgba(c, 100/255.0, 0, 100/255.0, 0.7);
+                    } else
+                    {
+                        cairo_set_source_rgba(c, 0, 0, 0, 1);
+                    }
+                    
                     cairo_stroke(c);
 
                     if (m_content&NODETEXT)
@@ -322,120 +363,6 @@ class PlaceDrawFPGA
             return tgtOffset + (coord-srcOffset)*ratio;
         }
 
-        /// write gdsii format 
-        virtual bool writeGdsii(std::string const& filename) const
-        {
-            double scale_rato = 1000; 
-            GdsParser::GdsWriter gw (filename.c_str());
-            gw.create_lib("TOP", 0.001, 1e-6/scale_rato);
-            gw.gds_write_bgnstr();
-            gw.gds_write_strname("TOP");
-
-            // kernel function to fill in contents 
-            writeGdsiiContent(gw, scale_rato); 
-
-            gw.gds_write_endstr();
-            gw.gds_write_endlib();
-
-            return true;
-        }
-        /// write contents to GDSII 
-        virtual void writeGdsiiContent(GdsParser::GdsWriter& gw, double scale_rato) const
-        {
-            // layer specification 
-            // it is better to use even layers, because text appears on odd layers
-            const unsigned dieAreaLayer = getLayer(true);
-            const unsigned rowLayer = getLayer(false);
-            const unsigned subRowLayer = getLayer(false);
-            const unsigned binRowLayer = getLayer(false);
-            const unsigned binLayer = getLayer(false);
-            const unsigned sbinLayer = getLayer(false);
-            const unsigned movableCellBboxLayer = getLayer(false);
-            const unsigned fixedCellBboxLayer = getLayer(false);
-            const unsigned blockageBboxLayer = getLayer(false);
-            const unsigned fillerCellBboxLayer = getLayer(false);
-            const unsigned pinLayer = getLayer(false);
-            const unsigned multiRowCellBboxLayer = getLayer(false);
-            const unsigned movePathLayer = getLayer(false);
-            const unsigned markedNodeLayer = getLayer(false); // together with netLayer 
-            const unsigned netLayer = getLayer(false);
-
-            dreamplacePrint(kINFO, "Layer: dieArea:%u, row:%u, subRow:%u, binRow:%u, bin:%u, sbin:%u, movableCellBbox:%u, fixedCellBbox:%u, blockageBbox:%u, fillerCellBboxLayer:%u, pin:%u, multiRowCellBbox:%u, movePathLayer:%u, markedNodeLayer:%u, net:from %u\n", 
-                    dieAreaLayer, rowLayer, subRowLayer, binRowLayer, binLayer, sbinLayer, movableCellBboxLayer, fixedCellBboxLayer, blockageBboxLayer, fillerCellBboxLayer, pinLayer, multiRowCellBboxLayer, movePathLayer, markedNodeLayer, netLayer);
-
-            char buf[1024];
-
-            // write dieArea
-            gw.write_box(dieAreaLayer, 0, m_xl*scale_rato, m_yl*scale_rato, m_xh*scale_rato, m_yh*scale_rato);
-            // write bins 
-            for (coordinate_type bx = m_xl; bx < m_xh; bx += m_bin_size_x)
-            {
-                for (coordinate_type by = m_yl; by < m_yh; by += m_bin_size_y)
-                {
-                    coordinate_type bxl = bx; 
-                    coordinate_type byl = by; 
-                    coordinate_type bxh = std::min(bxl+m_bin_size_x, m_xh); 
-                    coordinate_type byh = std::min(byl+m_bin_size_y, m_yh); 
-                    gw.write_box(binLayer, 0, bxl*scale_rato, byl*scale_rato, bxh*scale_rato, byh*scale_rato);
-                    dreamplaceSPrint(kNONE, buf, "%u,%u", (unsigned int)round((bx-m_xl)/m_bin_size_x), (unsigned int)round((by-m_yl)/m_bin_size_y));
-                    gw.gds_create_text(buf, (bxl+bxh)/2*scale_rato, (byl+byh)/2*scale_rato, binLayer+1, 5);
-                }
-            }
-            // write cells 
-            for (index_type i = 0; i < m_num_nodes; ++i)
-            {
-                // bounding box of cells and its name 
-                coordinate_type node_xl = m_x[i]; 
-                coordinate_type node_yl = m_y[i]; 
-                coordinate_type node_xh = node_xl+m_node_size_x[i]; 
-                coordinate_type node_yh = node_yl+m_node_size_y[i]; 
-                unsigned layer; 
-                if (i < m_num_movable_nodes) // movable cell 
-                {
-                    layer = movableCellBboxLayer; 
-                }
-                else if (i >= m_num_nodes-m_num_filler_nodes) // filler cell 
-                {
-                    layer = fillerCellBboxLayer; 
-                }
-                else // fixed cells 
-                {
-                    layer = fixedCellBboxLayer; 
-                }
-
-                if (layer == fixedCellBboxLayer || m_sMarkNode.empty()) // do not write cells if there are marked cells 
-                {
-                    gw.write_box(layer, 0, node_xl*scale_rato, node_yl*scale_rato, node_xh*scale_rato, node_yh*scale_rato);
-                    dreamplaceSPrint(kNONE, buf, "(%u)%s", i, getTextOnNode(i).c_str());
-                    gw.gds_create_text(buf, (node_xl+node_xh)/2*scale_rato, (node_yl+node_yh)/2*scale_rato, layer+1, 5);
-
-                    if (i < m_num_movable_nodes && m_node_size_y[i] > m_row_height) // multi-row cell 
-                    {
-                        gw.write_box(multiRowCellBboxLayer, 0, node_xl*scale_rato, node_yl*scale_rato, node_xh*scale_rato, node_yh*scale_rato);
-                        gw.gds_create_text(buf, (node_xl+node_xh)/2*scale_rato, (node_yl+node_yh)/2*scale_rato, multiRowCellBboxLayer+1, 5);
-                    }
-                }
-                if (m_sMarkNode.count(i)) // highlight marked nodes 
-                {
-                    gw.write_box(markedNodeLayer, 0, node_xl*scale_rato, node_yl*scale_rato, node_xh*scale_rato, node_yh*scale_rato);
-                    dreamplaceSPrint(kNONE, buf, "(%u)%s", i, getTextOnNode(i).c_str());
-                    gw.gds_create_text(buf, (node_xl+node_xh)/2*scale_rato, (node_yl+node_yh)/2*scale_rato, markedNodeLayer+1, 5);
-                }
-            }
-            // write pins 
-            for (index_type i = 0; i < m_num_pins; ++i)
-            {
-                coordinate_type pin_xl; 
-                coordinate_type pin_yl; 
-                coordinate_type pin_xh; 
-                coordinate_type pin_yh; 
-                getPinBbox(i, scale_rato, pin_xl, pin_yl, pin_xh, pin_yh);
-                // bounding box of pins and its macropin name 
-                gw.write_box(pinLayer, 0, pin_xl*scale_rato, pin_yl*scale_rato, pin_xh*scale_rato, pin_yh*scale_rato);
-                gw.gds_create_text(getTextOnPin(i).c_str(), (pin_xl+pin_xh)/2*scale_rato, (pin_yl+pin_yh)/2*scale_rato, pinLayer+1, 5);
-            }
-
-        }
         /// automatically increment by 2
         /// \param reset controls whehter restart from 1 
         unsigned getLayer(bool reset = false) const
@@ -481,18 +408,26 @@ class PlaceDrawFPGA
         const coordinate_type* m_pin_offset_y; 
         const index_type* m_pin2node_map; 
         index_type m_num_nodes;  
-        index_type m_num_movable_nodes; 
+        index_type m_num_physical_nodes; 
         index_type m_num_filler_nodes; 
         index_type m_num_pins; 
         coordinate_type m_xl;
         coordinate_type m_yl; 
         coordinate_type m_xh; 
         coordinate_type m_yh; 
-        coordinate_type m_site_width; 
-        coordinate_type m_row_height; 
         coordinate_type m_bin_size_x; 
         coordinate_type m_bin_size_y; 
         const index_type* m_node2fence_region_map; 
+        const index_type* m_is_cc_node;
+        const int m_ffId;
+        const int m_lutId;
+        const int m_addId;
+        const int m_bramId;
+        const int m_m9kId;
+        const int m_m144kId;
+        const int m_dspId;
+        const int m_ioId;
+        const int m_pllId;
         std::set<index_type> m_sMarkNode; ///< marked nodes whose net will be drawn
         int m_content; ///< content for DrawContent
 };

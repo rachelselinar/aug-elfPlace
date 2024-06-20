@@ -18,6 +18,8 @@ DEFINE_GAUSSIAN_AUC_FUNCTION(T);
 /// define lut_compute_areas_function
 template <typename T>
 DEFINE_LUT_COMPUTE_AREAS_FUNCTION(T);
+template <typename T>
+DEFINE_LUT_COMPUTE_AREAS_FUNCTION_GENERIC(T);
 
 #define CHECK_FLAT(x) AT_ASSERTM(!x.is_cuda() && x.ndimension() == 1, #x "must be a flat tensor on CPU")
 #define CHECK_EVEN(x) AT_ASSERTM((x.numel() & 1) == 0, #x "must have even number of elements")
@@ -93,7 +95,7 @@ int fillDemandMapLUT(const T *pos_x,
 
 // Given a Gaussian demand map, compute demand of each instance type based on local window demand distribution
 template <typename T>
-int computeInstanceAreaLUT(const T *demMap,
+int computeInstanceAreaLUT(const T *demMap, const int* lut_fracture,
                            const int num_bins_x, const int num_bins_y, 
                            const int num_bins_l,
                            int num_threads, T stddev_x, T stddev_y,
@@ -102,7 +104,7 @@ int computeInstanceAreaLUT(const T *demMap,
 
     int total_bins = num_bins_x*num_bins_y;
     int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(total_bins / num_threads / 16), 1);
-    #pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
+    //#pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
     for (int i = 0; i < total_bins; ++i)
     {
         int binX = int(i/num_bins_y);
@@ -127,16 +129,17 @@ int computeInstanceAreaLUT(const T *demMap,
                     for (int l = 0; l < num_bins_l; ++l)
                     {
                         areaMap[idx + l] += demMap[index + l];
-                        //temp[l] += demMap[index + l];
+                        //tempMap[idx + l] += demMap[index + l];
                     }
                 }
             }
         }
-        
+
         // Compute instance areas based on the window demand distribution
         T winArea = (bin_index_xh - bin_index_xl) * (bin_index_yh - bin_index_yl) * bin_area;
-        lut_compute_areas_function(winArea, areaMap, idx, num_bins_l);
 
+        //lut_compute_areas_function(winArea, tempMap, idx, num_bins_l);
+        lut_compute_areas_function_generic(lut_fracture, winArea, areaMap, idx, num_bins_l);
     }
     return 0;
 }
@@ -158,7 +161,8 @@ int collectInstanceAreasLUT(const T *pos_x,
                             T *instAreas)
 {
 
-    //int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
+    int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
+    #pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
     for (int i = 0; i < num_nodes; ++i)
     {
         const int idx = indices[i];
@@ -180,6 +184,7 @@ at::Tensor lut_compatibility(
     at::Tensor type,
     at::Tensor node_size_x,
     at::Tensor node_size_y,
+    at::Tensor lut_fracture,
     int num_bins_x,
     int num_bins_y,
     int num_bins_l,
@@ -236,6 +241,7 @@ at::Tensor lut_compatibility(
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "computeInstanceAreaLUT", [&] {
         computeInstanceAreaLUT<scalar_t>(
             DREAMPLACE_TENSOR_DATA_PTR(demMap, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(lut_fracture, int),
             num_bins_x, num_bins_y, num_bins_l, num_threads,
             stddev_x, stddev_y, ext_bin, bin_area,
             DREAMPLACE_TENSOR_DATA_PTR(areaMap, scalar_t));

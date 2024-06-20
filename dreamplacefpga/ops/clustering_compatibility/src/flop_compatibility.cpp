@@ -43,15 +43,15 @@ int fillDemandMapFF(const T *pos_x,
                     T *demandX, T *demandY, T *demMap)
 {
 
-    //int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
+    //unsigned int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
     //#pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
-    int n_o_p = num_bins_y * num_bins_ck * num_bins_ce;
-    int o_p = num_bins_ck * num_bins_ce;
-    for (int i = 0; i < num_nodes; ++i)
+    unsigned int n_o_p = num_bins_y * num_bins_ck * num_bins_ce;
+    unsigned int o_p = num_bins_ck * num_bins_ce;
+    for (unsigned int i = 0; i < num_nodes; ++i)
     {
-        const int idx = indices[i];
-        T node_x = pos_x[idx] + 0.5 * node_size_x[idx];
-        T node_y = pos_y[idx] + 0.5 * node_size_y[idx];
+        const unsigned int nIdx = indices[i];
+        T node_x = pos_x[nIdx] + 0.5 * node_size_x[nIdx];
+        T node_y = pos_y[nIdx] + 0.5 * node_size_y[nIdx];
         //Ctrl set values
         int cksr = ctrlSets[i*3 + 1];
         int ce = ctrlSets[i*3 + 2];
@@ -81,13 +81,25 @@ int fillDemandMapFF(const T *pos_x,
            demandY[y - bin_index_yl] = gaussian_auc_function(node_y, stddev_y, y*stddev_y, (y+1)*stddev_y, inv_sqrt);
         }
 
+        ////DBG
+        //std::cout << "x limit: " << bin_index_xl << " to " << bin_index_xh << std::endl;
+        //std::cout << "y limit: " << bin_index_yl << " to " << bin_index_yh << std::endl;
+        ////DBG
+
         for (int x = bin_index_xl; x < bin_index_xh; ++x)
         {
             for (int y = bin_index_yl; y < bin_index_yh; ++y)
             {
                 //#pragma omp atomic update
-                int idx = x * n_o_p + y * o_p + cksr * num_bins_ce + ce; 
+                unsigned int idx = x * n_o_p + y * o_p + cksr * num_bins_ce + ce; 
                 T dem = sf * demandX[x - bin_index_xl] * demandY[y - bin_index_yl];
+                ////DBG
+                //std::cout << "idx = " << x << "(x) * " << n_o_p << "(n_o_p) + "
+                //          << y << "(y) * " << o_p << "(o_p) + "
+                //          << cksr << "(cksr) * " << num_bins_ce << "(num_bins_ce) + "
+                //          << ce << "(ce)" << std::endl;
+                //std::cout << "FillDemandMapFF: Add " << dem << " to demMap at " << idx << std::endl;
+                ////DBG
                 demMap[idx] += dem;
             }
         }
@@ -113,6 +125,10 @@ int computeInstanceAreaFF(const T *demMap,
     #pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
     for (int i = 0; i < total_bins; ++i)
     {
+        ////DBG
+        //std::cout << "Start for Bin " << i << " out of " << total_bins << std::endl;
+        ////DBG
+        
         int binX = int(i/num_bins_y);
         int binY = int(i%num_bins_y);
 
@@ -131,11 +147,15 @@ int computeInstanceAreaFF(const T *demMap,
             {
                 if (x != binX && y != binY)
                 {
-                    int idx = x * n_o_p + y * o_p;
+                    unsigned int idx = x * n_o_p + y * o_p;
                     flop_aggregate_demand_function(demMap, idx, areaMap, index, num_bins_ck, num_bins_ce);
                 }
             }
         }
+        ////DBG
+        //std::cout << "For Bin " << i << " completed flop_aggregate_demand_function for x: " << bin_index_xl << " -> " << bin_index_xh
+        //          << " and y : " << bin_index_yl << " -> " << bin_index_yh << std::endl;
+        ////DBG
         
         //Flop compute areas
         for (int ck = 0; ck < num_bins_ck; ++ck)
@@ -143,7 +163,7 @@ int computeInstanceAreaFF(const T *demMap,
             T totalQ = 0.0;
             for (int ce = 0; ce < num_bins_ce; ++ce)
             {
-                int updIdx = index + ck*num_bins_ce + ce;
+                unsigned int updIdx = index + ck*num_bins_ce + ce;
                 if (areaMap[updIdx] > 0.0)
                 {
                     totalQ += smooth_ceil_function(areaMap[updIdx]* 0.25, 0.25);
@@ -154,7 +174,7 @@ int computeInstanceAreaFF(const T *demMap,
 
             for (int cE = 0; cE < num_bins_ce; ++cE)
             {
-                int updIdx = index + ck*num_bins_ce + cE;
+                unsigned int updIdx = index + ck*num_bins_ce + cE;
                 if (areaMap[updIdx] > 0.0)
                 {
                     T qrt = smooth_ceil_function(areaMap[updIdx]* 0.25, 0.25);
@@ -162,6 +182,11 @@ int computeInstanceAreaFF(const T *demMap,
                 }
             }
         }
+        ////DBG
+        //std::cout << "For Bin " << i << " completed flop area compute for num_bins_ck: " << num_bins_ck
+        //          << " and num_bins_ce: " << num_bins_ce << std::endl;
+        ////DBG
+        
     }
     return 0;
 }
@@ -183,13 +208,13 @@ int collectInstanceAreasFF(const T *pos_x,
                            T *instAreas)
 {
 
-    //int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
-    //#pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
     int n_o_p = num_bins_y * num_bins_ck * num_bins_ce;
     int o_p = num_bins_ck * num_bins_ce;
-    for (int i = 0; i < num_nodes; ++i)
+    int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nodes / num_threads / 16), 1);
+    #pragma omp parallel for num_threads(num_threads) schedule(dynamic, chunk_size)
+    for (unsigned int i = 0; i < num_nodes; ++i)
     {
-        const int idx = indices[i];
+        const unsigned int idx = indices[i];
         T node_x = pos_x[idx] + 0.5 * node_size_x[idx];
         T node_y = pos_y[idx] + 0.5 * node_size_y[idx];
         //Ctrl set values
@@ -199,7 +224,7 @@ int collectInstanceAreasFF(const T *pos_x,
         int binX = int(node_x * inv_stddev_x);
         int binY = int(node_y * inv_stddev_y);
 
-        int index = binX * n_o_p + binY * o_p + cksr * num_bins_ce + ce;
+        unsigned int index = binX * n_o_p + binY * o_p + cksr * num_bins_ce + ce;
         instAreas[idx] = areaMap[index];
     }
     return 0;
@@ -247,7 +272,7 @@ at::Tensor flop_compatibility(
     CHECK_CONTIGUOUS(node_size_y);
 
     int num_nodes = pos.numel() / 2;
-    double half_slice = slice_capacity/2.0;
+    double half_slice = slice_capacity / 2.0;
 
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "fillDemandMapFF", [&] {
         fillDemandMapFF<scalar_t>(
@@ -266,6 +291,8 @@ at::Tensor flop_compatibility(
             DREAMPLACE_TENSOR_DATA_PTR(demMap, scalar_t));
     });
 
+    //std::cout << "Completed fillDemandMapFF" << std::endl;
+
     at::Tensor areaMap = demMap.clone();
 
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "computeInstanceAreaFF", [&] {
@@ -277,6 +304,7 @@ at::Tensor flop_compatibility(
             stddev_x, stddev_y, ext_bin, bin_area, half_slice,
             DREAMPLACE_TENSOR_DATA_PTR(areaMap, scalar_t));
     });
+    //std::cout << "Completed computeInstanceAreaFF" << std::endl;
 
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "collectInstanceAreasFF", [&] {
         collectInstanceAreasFF<scalar_t>(
@@ -291,6 +319,7 @@ at::Tensor flop_compatibility(
             inv_stddev_x, inv_stddev_y,
             DREAMPLACE_TENSOR_DATA_PTR(rsrcAreas, scalar_t));
     });
+    //std::cout << "Completed collectInstanceAreasFF" << std::endl;
 
     return areaMap;
 }

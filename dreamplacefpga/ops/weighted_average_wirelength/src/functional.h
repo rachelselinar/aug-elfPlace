@@ -12,6 +12,7 @@ void integrateNetWeightsLauncher(
     const int *netpin_start,
     const unsigned char *net_mask,
     const T *net_weights,
+    const T *net_weights_x,
     T *grad_x_tensor, T *grad_y_tensor,
     int num_nets,
     int num_threads)
@@ -23,10 +24,11 @@ void integrateNetWeightsLauncher(
         if (net_mask[net_id])
         {
             T weight = net_weights[net_id];
+            T weight_x = net_weights_x[net_id];
             for (int j = netpin_start[net_id]; j < netpin_start[net_id + 1]; ++j)
             {
                 int pin_id = flat_netpin[j];
-                grad_x_tensor[pin_id] *= weight;
+                grad_x_tensor[pin_id] *= weight_x;
                 grad_y_tensor[pin_id] *= weight;
             }
         }
@@ -135,7 +137,9 @@ void computeXExpSumByExpSumXY(
     const int *pin2net_map,
     const unsigned char *net_mask,
     int num_nets,
-    T *partial_wl,
+    //T *partial_wl,
+    T *partial_wl_x,
+    T *partial_wl_y,
     int num_threads)
 {
     int chunk_size = DREAMPLACE_STD_NAMESPACE::max(int(num_nets / num_threads / 16), 1);
@@ -144,11 +148,13 @@ void computeXExpSumByExpSumXY(
     {
         if (net_mask[i])
         {
-            T wl_x = xexp_x_sum[i] / exp_x_sum[i] - xexp_nx_sum[i] / exp_nx_sum[i];
+            //T wl_x = xexp_x_sum[i] / exp_x_sum[i] - xexp_nx_sum[i] / exp_nx_sum[i];
+            partial_wl_x[i] = xexp_x_sum[i] / exp_x_sum[i] - xexp_nx_sum[i] / exp_nx_sum[i];
             int y_index = i + num_nets;
-            T wl_y = xexp_x_sum[y_index] / exp_x_sum[y_index] - xexp_nx_sum[y_index] / exp_nx_sum[y_index];
+            //T wl_y = xexp_x_sum[y_index] / exp_x_sum[y_index] - xexp_nx_sum[y_index] / exp_nx_sum[y_index];
+            partial_wl_y[i] = xexp_x_sum[y_index] / exp_x_sum[y_index] - xexp_nx_sum[y_index] / exp_nx_sum[y_index];
 
-            partial_wl[i] = wl_x + wl_y;
+            //partial_wl[i] = wl_x + wl_y;
         }
     }
 }

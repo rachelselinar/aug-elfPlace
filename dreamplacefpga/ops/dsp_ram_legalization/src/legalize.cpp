@@ -7,19 +7,29 @@
 #include <omp.h>
 #include <chrono>
 #include <limits>
+#include <sstream>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/numpy.h>
-#include <sstream>
 #include "utility/src/utils.h"
 #include "utility/src/torch.h"
 // Lemon for min cost flow
 #include "lemon/list_graph.h"
 #include "lemon/network_simplex.h"
+#include "lemon/cost_scaling.h"
+// local dependency
+#include "dsp_ram_legalization/src/legalize_auction.h"
 
 DREAMPLACE_BEGIN_NAMESPACE
 
+#define INVALID -1
+#define AUCTION_MAX_EPS 5.0 // Larger values mean solution is more approximate
+#define AUCTION_MIN_EPS 1.0
+#define AUCTION_FACTOR  0.1
+#define AUCTION_MAX_ITERS 9999
+
+//Min-cost flow to legalize DSPs/RAMs
 void legalize(
     pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast> const& locX,
     pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast> const& locY,
@@ -105,6 +115,12 @@ void legalize(
             distMax += lg_max_dist_incr;
             continue;
         }
+        ////DBG
+        //std::cout << "INFO: Search range min: 0 and max: " << distMax
+        //          << " for " << num_nodes << " instances and " << num_sites
+        //          << " sites with " << mArcs.size() << " arcs" <<std::endl;
+        //std::cout << "INFO: Legalized " << flowSize << " instances out of " << num_nodes << std::endl;
+        ////DBG
 
         double maxMov = 0;
         double avgMov = 0;
@@ -131,9 +147,125 @@ void legalize(
     }
 }
 
+//Legalize using Auction Algorithm
+template <typename T>
+int auctionAlgorithmLauncher(
+    const T* locX,
+    const T* locY,
+    const T* sites,
+    const T* precond,
+    const int num_nodes,
+    const int num_sites,
+    T* cost,
+    T* displacements,
+    int* outLoc)
+{
+    //Populate cost array
+    for (int blk = 0; blk < num_nodes; ++blk)
+    {
+        for (int st = 0; st < num_sites; ++st)
+        {
+            T dist = std::abs(locX[blk] - sites[st*2]) + std::abs(locY[blk] - sites[st*2+1]);
+            T mArcCost = dist * precond[blk];
+            unsigned index = blk*num_sites+ st;
+            cost[index] = mArcCost;
+        }
+    }
+
+    std::vector<T> m_matrix; 
+    std::vector<int> m_item2person; 
+    std::vector<T> m_bids;
+    std::vector<T> m_prices;
+    std::vector<int> m_sbids;
+
+    unsigned nn = num_sites*num_sites;
+
+    m_matrix.resize(nn); 
+    m_item2person.resize(num_sites); 
+    m_bids.resize(nn); 
+    m_prices.resize(num_sites);
+    m_sbids.resize(num_sites); 
+
+    std::copy(cost, cost+nn, m_matrix.data()); 
+
+    int ret = run_auction<T>(
+            num_nodes,
+            num_sites,
+            m_matrix.data(),
+            outLoc,
+            AUCTION_MAX_EPS,
+            AUCTION_MIN_EPS,
+            AUCTION_FACTOR, 
+            AUCTION_MAX_ITERS, 
+            m_item2person.data(), 
+            m_bids.data(), 
+            m_prices.data(), 
+            m_sbids.data()
+            );
+
+    ////Collect node displacements
+    for (int idx = 0; idx < num_nodes; ++idx)
+    {
+        int sId = outLoc[idx];
+        if (sId != INVALID)
+        {
+            displacements[idx] = std::abs(locX[idx] - sites[sId*2]) + std::abs(locY[idx] - sites[sId*2+1]);
+        }
+    }
+
+    return ret;
+}
+
+
+void legalize_auction(
+        at::Tensor posX, at::Tensor posY, at::Tensor sites,
+        at::Tensor precond, int num_nodes, int num_sites,
+        at::Tensor cost, at::Tensor displacements,
+        at::Tensor locations)
+{
+    CHECK_FLAT_CPU(posX);
+    CHECK_CONTIGUOUS(posX);
+
+    CHECK_FLAT_CPU(posY);
+    CHECK_CONTIGUOUS(posY);
+
+    CHECK_FLAT_CPU(sites);
+    CHECK_EVEN(sites);
+    CHECK_CONTIGUOUS(sites);
+
+    CHECK_FLAT_CPU(precond);
+    CHECK_CONTIGUOUS(precond);
+
+    CHECK_FLAT_CPU(cost);
+    CHECK_CONTIGUOUS(cost);
+
+    ////DBG
+    //CPUTimer::hr_clock_rep timer_start, timer_stop;
+    //timer_start = CPUTimer::getGlobaltime();
+    ////DBG
+
+    DREAMPLACE_DISPATCH_FLOATING_TYPES(posX, "auctionAlgorithmLauncher", [&] {
+            auctionAlgorithmLauncher<scalar_t>(
+                    DREAMPLACE_TENSOR_DATA_PTR(posX, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(posY, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(sites, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(precond, scalar_t),
+                    num_nodes, num_sites,
+                    DREAMPLACE_TENSOR_DATA_PTR(cost, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(displacements, scalar_t),
+                    DREAMPLACE_TENSOR_DATA_PTR(locations, int));
+            });
+
+    ////DBG
+    //timer_stop = CPUTimer::getGlobaltime();
+    //dreamplacePrint(kINFO, "Legalize using Auction Algorithm takes %g ms\n",
+    //        (timer_stop - timer_start) * CPUTimer::getTimerPeriod());
+    ////DBG
+}
 
 DREAMPLACE_END_NAMESPACE
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("legalize", &DREAMPLACE_NAMESPACE::legalize, "Legalize DSP & RAM instances");
+    m.def("legalize", &DREAMPLACE_NAMESPACE::legalize, "Legalize DSP & RAM instances using Min-Cost Flow");
+    m.def("legalize_auction", &DREAMPLACE_NAMESPACE::legalize_auction, "Legalize using Auction Algorithm");
 }

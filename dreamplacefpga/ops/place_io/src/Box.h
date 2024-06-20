@@ -1,9 +1,7 @@
-/*************************************************************************
+/***********************************************************************************
     > File Name: Box.h
-    > Author: Yibo Lin (DREAMPlace)
-    > Mail: yibolin@utexas.edu
-    > Created Time: Sun 14 Jun 2015 04:05:16 PM CDT
- ************************************************************************/
+    > Author: Yibo Lin (DREAMPlace), Rachel Selina Rajarathnam (DREAMPlaceFPGA)
+ **********************************************************************************/
 
 #ifndef DREAMPLACE_BOX_H
 #define DREAMPLACE_BOX_H
@@ -414,6 +412,38 @@ inline bool onBoundary(Box<T> const& b, Point<T> const& p)
 {
     return (onBoundary(b.get(kX), p.x()) && contain(b.get(kY), p.y()))
         || (onBoundary(b.get(kY), p.y()) && contain(b.get(kX), p.x()));
+}
+
+/// \return true if boxes can be merged - merge b1 and b2 to b2 
+template <typename T>
+inline bool mergeBoxes(Box<T> &b1, Box<T> &b2, int sitePerColumn) //Rectilinear not considered
+{
+    if (b1.xl() == b2.xl() && b1.xh() == b2.xh())
+    {
+        if (sitePerColumn == 1)
+        {
+            b2.set(std::min(b1.xl(), b2.xl()), std::min(b1.yl(), b2.yl()), std::max(b1.xh(), b2.xh()), std::max(b1.yh(), b2.yh()));
+        } else
+        {
+            //Boxes on top/bottom of each other
+            if (b1.yh() == b2.yl()) //b2 on top of b1
+            {
+                b2.set(b1.xl(), b1.yl(), b2.xh(), b2.yh());
+            } else if (b1.yl() == b2.yh()) //b2 below b1
+            {
+                b2.set(b2.xl(), b2.yl(), b1.xh(), b1.yh());
+            } //Boxes partially inside another box - merge to one big box 
+            else if (b1.yl() < b2.yh() && b2.yh() < b1.yh()) 
+            {
+                b2.set(b2.xl(), b2.yl(), b2.xh(), b1.yh());
+            } else if (b2.yl() < b1.yh() && b1.yh() < b2.yh()) //b2 below b1
+            {
+                b2.set(b2.xl(), b1.yl(), b2.xh(), b2.yh());
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 DREAMPLACE_END_NAMESPACE

@@ -33,6 +33,7 @@ void integrateNetWeightsCudaLauncher(
         const int* pin2net_map,
         const unsigned char* net_mask,
         const T* net_weights,
+        const T* net_weights_x,
         T* grad_x_tensor, T* grad_y_tensor,
         int num_pins
         );
@@ -209,6 +210,7 @@ at::Tensor weighted_average_wirelength_atomic_backward(
                         DREAMPLACE_TENSOR_DATA_PTR(pin2net_map, int),
                         DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                         DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                        DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t), //Re-use for net_weights_x
                         DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t)+num_pins,
                         num_pins
                     );

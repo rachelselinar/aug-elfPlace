@@ -20,7 +20,9 @@ __global__ void computeWeightedAverageWirelength(
         const unsigned char* net_mask, 
         int num_nets,
         const T* inv_gamma, 
-        T* partial_wl,
+        //T* partial_wl,
+        T* partial_wl_x,
+        T* partial_wl_y,
         T* grad_intermediate_x, T* grad_intermediate_y)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -29,15 +31,18 @@ __global__ void computeWeightedAverageWirelength(
     {
         const T *values;
         T *grads;
+        T *partial_wl;
         if (i & 1)
         {
             values = y;
             grads = grad_intermediate_y;
+            partial_wl = partial_wl_y;
         }
         else
         {
             values = x;
             grads = grad_intermediate_x;
+            partial_wl = partial_wl_x;
         }
 
         // int degree = netpin_start[ii+1]-netpin_start[ii];
@@ -176,7 +181,9 @@ int computeWeightedAverageWirelengthCudaMergedLauncher(
     const unsigned char *net_mask,
     int num_nets,
     const T *inv_gamma,
-    T *partial_wl,
+    //T *partial_wl,
+    T *partial_wl_x,
+    T *partial_wl_y,
     T *grad_intermediate_x, T *grad_intermediate_y)
 {
     int thread_count = 64;
@@ -189,7 +196,9 @@ int computeWeightedAverageWirelengthCudaMergedLauncher(
         net_mask,
         num_nets,
         inv_gamma,
-        partial_wl,
+        //partial_wl,
+        partial_wl_x,
+        partial_wl_y,
         grad_intermediate_x, grad_intermediate_y);
 
     return 0;
@@ -234,7 +243,7 @@ int computeWeightedAverageWirelengthCudaMergedLauncherFPGA(
         const unsigned char *net_mask,                                      \
         int num_nets,                                                       \
         const T *inv_gamma,                                                 \
-        T *partial_wl,                                                      \
+        T *partial_wl_x, T *partial_wl_y,                                   \
         T *grad_intermediate_x, T *grad_intermediate_y);                    \
                                                                             \
     template int computeWeightedAverageWirelengthCudaMergedLauncherFPGA<T>( \

@@ -38,14 +38,14 @@ __global__ void fillDemandMapFF(const T *pos_x,
         AtomicOp atomic_add_op,
         typename AtomicOp::type* demMap)
 {
-    const int i = threadIdx.x + blockDim.x * blockIdx.x;
+    const unsigned int i = threadIdx.x + blockDim.x * blockIdx.x;
     int n_o_p = num_bins_y * num_bins_ck * num_bins_ce;
     int o_p = num_bins_ck * num_bins_ce;
     if (i < num_nodes)
     {
-        const int idx = indices[i];
-        T node_x = pos_x[idx] + 0.5 * node_size_x[idx];
-        T node_y = pos_y[idx] + 0.5 * node_size_y[idx];
+        const unsigned int nIdx = indices[i];
+        T node_x = pos_x[nIdx] + 0.5 * node_size_x[nIdx];
+        T node_y = pos_y[nIdx] + 0.5 * node_size_y[nIdx];
         //Ctrl set values
         int cksr = ctrlSets[i*3 + 1];
         int ce = ctrlSets[i*3 + 2];
@@ -70,7 +70,7 @@ __global__ void fillDemandMapFF(const T *pos_x,
             T dem_xmbin_index_xl = gaussian_auc_function(node_x, stddev_x, x*stddev_x, (x+1)*stddev_x, inv_sqrt);
             for (int y = bin_index_yl; y < bin_index_yh; ++y)
             {
-                int idx = x * n_o_p + y * o_p + cksr * num_bins_ce + ce; 
+                unsigned int idx = x * n_o_p + y * o_p + cksr * num_bins_ce + ce; 
                 T dem_ymbin_index_yl = gaussian_auc_function(node_y, stddev_y, y*stddev_y, (y+1)*stddev_y, inv_sqrt);
                 //T dem = sf * demandX[x - bin_index_xl] * demandY[y - bin_index_yl];
                 T dem = sf * dem_xmbin_index_xl * dem_ymbin_index_yl;
@@ -89,7 +89,7 @@ __global__ void computeInstanceAreaFF(const T *demMap,
                                       const T stddev_x, const T stddev_y, const int ext_bin,
                                       const T bin_area, const T half_slice, T *areaMap)
 {
-    const int i = threadIdx.x + blockDim.x * blockIdx.x;
+    const unsigned int i = threadIdx.x + blockDim.x * blockIdx.x;
     int total_bins = num_bins_x*num_bins_y;
     int n_o_p = num_bins_y * num_bins_ck * num_bins_ce;
     int o_p = num_bins_ck * num_bins_ce;
@@ -113,7 +113,7 @@ __global__ void computeInstanceAreaFF(const T *demMap,
             {
                 if (x != binX && y != binY)
                 {
-                    int idx = x * n_o_p + y * o_p;
+                    unsigned int idx = x * n_o_p + y * o_p;
                     flop_aggregate_demand_function(demMap, idx, areaMap, index, num_bins_ck, num_bins_ce);
                 }
             }
@@ -125,7 +125,7 @@ __global__ void computeInstanceAreaFF(const T *demMap,
             T totalQ = 0.0;
             for (int ce = 0; ce < num_bins_ce; ++ce)
             {
-                int updIdx = index + ck*num_bins_ce + ce;
+                unsigned int updIdx = index + ck*num_bins_ce + ce;
                 if (areaMap[updIdx] > 0.0)
                 {
                     totalQ += smooth_ceil_function(areaMap[updIdx]* 0.25, 0.25);
@@ -136,7 +136,7 @@ __global__ void computeInstanceAreaFF(const T *demMap,
 
             for (int cE = 0; cE < num_bins_ce; ++cE)
             {
-                int updIdx = index + ck*num_bins_ce + cE;
+                unsigned int updIdx = index + ck*num_bins_ce + cE;
                 if (areaMap[updIdx] > 0.0)
                 {
                     T qrt = smooth_ceil_function(areaMap[updIdx]* 0.25, 0.25);
@@ -168,7 +168,7 @@ __global__ void collectInstanceAreasFF(const T *pos_x,
     int o_p = num_bins_ck * num_bins_ce;
     if (i < num_nodes)
     {
-        const int idx = indices[i];
+        const unsigned int idx = indices[i];
         T node_x = pos_x[idx] + 0.5 * node_size_x[idx];
         T node_y = pos_y[idx] + 0.5 * node_size_y[idx];
         //Ctrl set values
@@ -178,7 +178,7 @@ __global__ void collectInstanceAreasFF(const T *pos_x,
         int binX = int(node_x * inv_stddev_x);
         int binY = int(node_y * inv_stddev_y);
 
-        int index = binX * n_o_p + binY * o_p + cksr * num_bins_ce + ce;
+        unsigned int index = binX * n_o_p + binY * o_p + cksr * num_bins_ce + ce;
         instAreas[idx] = areaMap[index];
     }
 }

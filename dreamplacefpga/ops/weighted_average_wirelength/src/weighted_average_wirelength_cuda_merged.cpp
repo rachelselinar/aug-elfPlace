@@ -34,7 +34,9 @@ int computeWeightedAverageWirelengthCudaMergedLauncher(
         const unsigned char* net_mask, 
         int num_nets,
         const T* inv_gamma, 
-        T* partial_wl,
+        //T* partial_wl,
+        T* partial_wl_x,
+        T* partial_wl_y,
         T* grad_intermediate_x, T* grad_intermediate_y
     );
 
@@ -76,6 +78,7 @@ void integrateNetWeightsCudaLauncher(
     const int *pin2net_map,
     const unsigned char *net_mask,
     const T *net_weights,
+    const T *net_weights_x,
     T *grad_x_tensor, T *grad_y_tensor,
     int num_pins);
 
@@ -100,6 +103,7 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     at::Tensor netpin_start,
     at::Tensor pin2net_map,
     at::Tensor net_weights,
+    at::Tensor net_weights_x,
     at::Tensor net_mask,
     at::Tensor inv_gamma)
 {
@@ -112,6 +116,8 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     CHECK_CONTIGUOUS(netpin_start);
     CHECK_FLAT(net_weights);
     CHECK_CONTIGUOUS(net_weights);
+    CHECK_FLAT(net_weights_x);
+    CHECK_CONTIGUOUS(net_weights_x);
     CHECK_FLAT(net_mask);
     CHECK_CONTIGUOUS(net_mask);
     CHECK_FLAT(pin2net_map);
@@ -121,7 +127,9 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     int num_pins = pos.numel() / 2;
     
     // x, y interleave 
-    at::Tensor partial_wl = at::zeros({num_nets, 2}, pos.options());
+    //at::Tensor partial_wl = at::zeros({num_nets, 2}, pos.options());
+    at::Tensor partial_wl_x = at::zeros({num_nets, 2}, pos.options());
+    at::Tensor partial_wl_y = at::zeros({num_nets, 2}, pos.options());
     // timed with grad_in yet 
     at::Tensor grad_intermediate = at::zeros_like(pos);
 
@@ -133,16 +141,21 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
             DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
             num_nets,
             DREAMPLACE_TENSOR_DATA_PTR(inv_gamma, scalar_t),
-            DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t),
+            //DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(partial_wl_x, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(partial_wl_y, scalar_t),
             DREAMPLACE_TENSOR_DATA_PTR(grad_intermediate, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_intermediate, scalar_t) + num_pins
             );
         if (net_weights.numel())
         {
-            partial_wl.mul_(net_weights.view({num_nets, 1}));
+            //partial_wl.mul_(net_weights.view({num_nets, 1}));
+            partial_wl_x.mul_(net_weights_x.view({num_nets, 1}));
+            partial_wl_y.mul_(net_weights.view({num_nets, 1}));
         }
     });
 
-    auto wl = partial_wl.sum();
+    //auto wl = partial_wl.sum();
+    auto wl = partial_wl_x.sum() + partial_wl_y.sum();
     //at::Tensor wl = at::zeros(1, pos.options());
     return {wl, grad_intermediate};
 }
@@ -237,6 +250,7 @@ at::Tensor weighted_average_wirelength_backward(
     at::Tensor netpin_start,
     at::Tensor pin2net_map,
     at::Tensor net_weights,
+    at::Tensor net_weights_x,
     at::Tensor net_mask,
     at::Tensor inv_gamma)
 {
@@ -249,6 +263,8 @@ at::Tensor weighted_average_wirelength_backward(
     CHECK_CONTIGUOUS(netpin_start);
     CHECK_FLAT(net_weights);
     CHECK_CONTIGUOUS(net_weights);
+    CHECK_FLAT(net_weights_x);
+    CHECK_CONTIGUOUS(net_weights_x);
     CHECK_FLAT(net_mask);
     CHECK_CONTIGUOUS(net_mask);
     CHECK_FLAT(pin2net_map);
@@ -268,6 +284,7 @@ at::Tensor weighted_average_wirelength_backward(
                 DREAMPLACE_TENSOR_DATA_PTR(pin2net_map, int),
                 DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                 DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                DREAMPLACE_TENSOR_DATA_PTR(net_weights_x, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + num_pins,
                 num_pins);
         }

@@ -276,23 +276,24 @@ class ElectricPotential(ElectricOverflow):
         if(region_id is not None):
             ### reconstruct data structure
             self.region_id = region_id
+            self.comp_id = placedb.rsrc2compId_map[region_id]
             num_nodes = placedb.num_nodes
             self.fence_region_mask = node2fence_region_map[:num_movable_nodes] == region_id
 
             node_size_x = torch.cat([node_size_x[:num_movable_nodes][self.fence_region_mask],
-                                    node_size_x[num_nodes-num_filler_nodes+placedb.filler_start_map[region_id]:num_nodes-num_filler_nodes+placedb.filler_start_map[region_id+1]]], 0)
+                                    node_size_x[num_nodes-num_filler_nodes+placedb.filler_start_map[self.comp_id]:num_nodes-num_filler_nodes+placedb.filler_start_map[self.comp_id+1]]], 0)
             node_size_y = torch.cat([node_size_y[:num_movable_nodes][self.fence_region_mask],
-                                    node_size_y[num_nodes-num_filler_nodes+placedb.filler_start_map[region_id]:num_nodes-num_filler_nodes+placedb.filler_start_map[region_id+1]]], 0)
+                                    node_size_y[num_nodes-num_filler_nodes+placedb.filler_start_map[self.comp_id]:num_nodes-num_filler_nodes+placedb.filler_start_map[self.comp_id+1]]], 0)
 
             num_movable_nodes = (self.fence_region_mask).long().sum().item()
-            num_filler_nodes = placedb.filler_start_map[region_id+1]-placedb.filler_start_map[region_id]
+            num_filler_nodes = placedb.filler_start_map[self.comp_id+1]-placedb.filler_start_map[self.comp_id]
             ## sorted cell is recomputed
             sorted_node_map = torch.sort(node_size_x[:num_movable_nodes])[1].to(torch.int32)
             ## make pos mask for fast forward
             self.pos_mask = torch.zeros(2, placedb.num_nodes, dtype=torch.bool, device=node_size_x.device)
             self.pos_mask[0,:placedb.num_movable_nodes].masked_fill_(self.fence_region_mask, 1)
             self.pos_mask[1,:placedb.num_movable_nodes].masked_fill_(self.fence_region_mask, 1)
-            self.pos_mask[:,placedb.num_nodes-placedb.num_filler_nodes+placedb.filler_start_map[region_id]:placedb.num_nodes-placedb.num_filler_nodes+placedb.filler_start_map[region_id+1]] = 1
+            self.pos_mask[:,placedb.num_nodes-placedb.num_filler_nodes+placedb.filler_start_map[self.comp_id]:placedb.num_nodes-placedb.num_filler_nodes+placedb.filler_start_map[self.comp_id+1]] = 1
             self.pos_mask = self.pos_mask.view(-1)
 
         super(ElectricPotential,
@@ -327,9 +328,9 @@ class ElectricPotential(ElectricOverflow):
         """
         if data_collections is not None and self.region_id is not None:
             self.node_size_x = torch.cat([data_collections.node_size_x[:data_collections.num_movable_nodes][self.fence_region_mask[:data_collections.num_movable_nodes]],
-                                     data_collections.node_size_x[data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.region_id]:data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.region_id+1]]], 0)
+                                     data_collections.node_size_x[data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.comp_id]:data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.comp_id+1]]], 0)
             self.node_size_y = torch.cat([data_collections.node_size_y[:data_collections.num_movable_nodes][self.fence_region_mask[:data_collections.num_movable_nodes]],
-                                     data_collections.node_size_y[data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.region_id]:data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.region_id+1]]], 0)
+                                     data_collections.node_size_y[data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.comp_id]:data_collections.num_nodes-data_collections.num_filler_nodes+data_collections.filler_start_map[self.comp_id+1]]], 0)
             self.sorted_node_map = torch.sort(self.node_size_x[:(self.fence_region_mask).long().sum().item()])[1].to(torch.int32)
 
         super(ElectricPotential, self).reset()
@@ -337,7 +338,7 @@ class ElectricPotential(ElectricOverflow):
     def setLockDSPRAM(self):
         """ Set computation for DSP/RAM to zero after legalization 
         """
-        if self.region_id is not None and self.region_id > 1:
+        if self.region_id is not None and self.region_id in self.placedb.dsp_ram_rsrcIds:
             self.lock_flag = True
 
     def forward(self, pos, mode="density"):
@@ -405,7 +406,7 @@ class ElectricPotential(ElectricOverflow):
                 self.exact_expkN, self.inv_wu2_plus_wv2,
                 self.wu_by_wu2_plus_wv2_half, self.wv_by_wu2_plus_wv2_half,
                 self.dct2, self.idct2, self.idct_idxst, self.idxst_idct,
-                self.placedb.overflowInstDensityStretchRatio[0], self.lock_flag)
+                math.sqrt(2.0), self.lock_flag)
         elif(mode == "overflow"):
             ### num_filler_nodes is set 0
             #Return zero if there are no elements in this resourceType
@@ -419,7 +420,8 @@ class ElectricPotential(ElectricOverflow):
                 self.xl, self.yl, self.xh, self.yh, self.bin_size_x,
                 self.bin_size_y, self.num_movable_nodes, 0,
                 self.num_bins_x, self.num_bins_y,
-                self.deterministic_flag, self.sorted_node_map, self.placedb.overflowInstDensityStretchRatio[self.region_id])
+                self.deterministic_flag, self.sorted_node_map,
+                self.placedb.overflowInstDensityStretchRatio[self.comp_id])
 
             bin_area = self.bin_size_x * self.bin_size_y
             density_cost = (density_map - bin_area).clamp_(min=0.0).sum()

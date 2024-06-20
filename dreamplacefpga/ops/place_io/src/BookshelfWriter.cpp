@@ -43,23 +43,19 @@ bool BookShelfWriter::writePlx(std::string const& outFileNoSuffix,
 
     writeHeader(out, "pl"); // use pl instead of plx to accommodate parser
 
-    for (int mIdx = 0; mIdx < m_db.numMovable(); ++mIdx)
+    for (int mIdx = 0; mIdx < m_db.numMovable() + m_db.numFixed(); ++mIdx)
     {
-        float xx = m_db.movNodeX(mIdx); 
-        float yy = m_db.movNodeY(mIdx); 
-        PlaceDB::index_type zz = m_db.movNodeZ(mIdx); 
-
-        fprintf(out, "%s %g %g %d", m_db.movNodeName(mIdx).c_str(), xx, yy, zz);
-        fprintf(out, "\n"); 
-    }
-    for (int fIdx = 0; fIdx < m_db.numFixed(); ++fIdx)
-    {
-        float xx = m_db.fixedNodeX(fIdx); 
-        float yy = m_db.fixedNodeY(fIdx); 
-        PlaceDB::index_type zz = m_db.fixedNodeZ(fIdx); 
-
-        fprintf(out, "%s %g %g %d", m_db.fixedNodeName(fIdx).c_str(), xx, yy, zz);
-        fprintf(out, " /FIXED \n"); 
+        float xx = m_db.nodeX(mIdx); 
+        float yy = m_db.nodeY(mIdx); 
+        PlaceDB::index_type zz = m_db.nodeZ(mIdx); 
+        fprintf(out, "%s %g %g %d", m_db.nodeName(mIdx).c_str(), xx, yy, zz);
+        if (mIdx < m_db.numMovable())
+        {
+            fprintf(out, "\n"); 
+        } else
+        {
+            fprintf(out, " /FIXED \n"); 
+        }
     }
 
     closeFile(out);

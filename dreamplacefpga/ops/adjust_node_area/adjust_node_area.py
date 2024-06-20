@@ -77,6 +77,7 @@ class ComputeNodeAreaFromPinMap(ComputeNodeAreaFromRouteMap):
 class AdjustNodeArea(nn.Module):
     def __init__(
         self,
+        placedb,
         flat_node2pin_map,
         flat_node2pin_start_map,
         pin_weights,  # only one of them needed
@@ -84,17 +85,6 @@ class AdjustNodeArea(nn.Module):
         flop_lut_mask,
         flop_mask,
         lut_mask,
-        filler_start_map,
-        xl,
-        yl,
-        xh,
-        yh,
-        num_movable_nodes,
-        num_filler_nodes,
-        route_num_bins_x,
-        route_num_bins_y,
-        pin_num_bins_x,
-        pin_num_bins_y,
         total_place_area,  # total placement area excluding fixed cells
         total_whitespace_area,  # total white space area excluding movable and fixed cells
         max_route_opt_adjust_rate,
@@ -104,23 +94,35 @@ class AdjustNodeArea(nn.Module):
         route_area_adjust_stop_ratio=0.01,
         pin_area_adjust_stop_ratio=0.05,
         unit_pin_capacity=0.0):
+
         super(AdjustNodeArea, self).__init__()
         self.flat_node2pin_start_map = flat_node2pin_start_map
         self.flat_node2pin_map = flat_node2pin_map
         self.pin_weights = pin_weights
-        self.xl = xl
-        self.xh = xh
-        self.yl = yl
-        self.yh = yh
 
         self.flop_lut_indices = flop_lut_indices
         self.flop_lut_mask = flop_lut_mask
         self.flop_mask = flop_mask
         self.lut_mask = lut_mask
-        self.filler_start_map = filler_start_map
-        self.num_movable_nodes = num_movable_nodes
-        self.num_filler_nodes = num_filler_nodes
 
+        self.filler_start_map = placedb.filler_start_map
+        self.xl = placedb.xl
+        self.xh = placedb.xh
+        self.yl = placedb.yl
+        self.yh = placedb.yh
+        self.num_movable_nodes = placedb.num_movable_nodes
+        self.num_filler_nodes = placedb.num_filler_nodes
+
+        #mlab
+        self.num_mlab_nodes = placedb.num_mlab_nodes
+        if self.num_mlab_nodes > 0:
+            self.is_mlab_node = placedb.is_mlab_node
+            self.is_mlab_filler_node = placedb.is_mlab_filler_node
+
+        #large carry chain nodes
+        self.num_ccNodes = placedb.num_ccNodes
+        if self.num_ccNodes > 0:
+            self.is_cc_node = torch.from_numpy(placedb.is_cc_node).to(self.lut_mask.device)
         # maximum and minimum instance area adjustment rate for routability optimization
         self.max_route_opt_adjust_rate = max_route_opt_adjust_rate
         self.min_route_opt_adjust_rate = 1.0 / max_route_opt_adjust_rate
@@ -142,8 +144,8 @@ class AdjustNodeArea(nn.Module):
             yh=self.yh,
             flop_lut_indices=self.flop_lut_indices,
             num_movable_nodes=self.num_movable_nodes,
-            num_bins_x=route_num_bins_x,
-            num_bins_y=route_num_bins_y)
+            num_bins_x=placedb.num_routing_grids_x,
+            num_bins_y=placedb.num_routing_grids_y)
         self.compute_node_area_pin = ComputeNodeAreaFromPinMap(
             pin_weights=self.pin_weights,
             flat_node2pin_start_map=self.flat_node2pin_start_map,
@@ -153,8 +155,8 @@ class AdjustNodeArea(nn.Module):
             yh=self.yh,
             flop_lut_indices=self.flop_lut_indices,
             num_movable_nodes=self.num_movable_nodes,
-            num_bins_x=pin_num_bins_x,
-            num_bins_y=pin_num_bins_y,
+            num_bins_x=placedb.num_routing_grids_x,
+            num_bins_y=placedb.num_routing_grids_y,
             unit_pin_capacity=unit_pin_capacity)
 
         # placement area excluding fixed cells
@@ -197,6 +199,10 @@ class AdjustNodeArea(nn.Module):
             old_filler_area_flop_sum = (node_size_x_filler[num_lut_fillers:] * node_size_y_filler[num_lut_fillers:]).sum()
             old_filler_area_sum = old_filler_area_lut_sum + old_filler_area_flop_sum
 
+            #No filler space available for nodes to inflate
+            if old_filler_area_sum == 0:
+                return False, False, False, False
+
             # compute routability optimized area
             if adjust_route_area_flag:
                 # clamp the routing square of routing utilization map
@@ -229,13 +235,22 @@ class AdjustNodeArea(nn.Module):
             else:
                 area_increment = torch.zeros(old_movable_area.numel(), dtype=old_movable_area.dtype, device=old_movable_area.device)
 
+            #Restrict inflation of large carry chain nodes
+            if self.num_ccNodes > 0:
+                cc_mask = self.is_cc_node[:self.num_movable_nodes] == 1
+                area_increment[cc_mask] = area_increment[cc_mask].clamp_(max=3.0)
+
             area_increment_lut_sum = (area_increment * self.lut_mask[:self.num_movable_nodes]).sum()
             area_increment_flop_sum = (area_increment * self.flop_mask[:self.num_movable_nodes]).sum()
-            # check whether the total area is larger than the max area requirement
-            # If yes, scale the extra area to meet the requirement
-            # We assume the total base area is no greater than the max area requirement
+            ## check whether the total area is larger than the max area requirement
             scale_factor_lut = max(((self.total_place_area/2.0 - old_movable_area_lut_sum) / area_increment_lut_sum).clamp_(max=1.0), 0.0)
             scale_factor_flop = max(((self.total_place_area/2.0 - old_movable_area_flop_sum) / area_increment_flop_sum).clamp_(max=1.0), 0.0)
+            #Incorporate area of placeholder MLAB fillers for FF
+            if self.num_mlab_nodes > 0:
+                mlab_size_x = node_size_x_movable[self.is_mlab_node[:self.num_movable_nodes] == 1]
+                mlab_size_y = node_size_y_movable[self.is_mlab_node[:self.num_movable_nodes] == 1]
+                mlab_area = mlab_size_x * mlab_size_y
+                scale_factor_flop = max(((self.total_place_area/2.0 - old_movable_area_flop_sum - mlab_area.sum()) / area_increment_flop_sum).clamp_(max=1.0), 0.0)
 
             # set the new_movable_area as base_area + scaled area increment
             new_movable_area = old_movable_area + (area_increment * scale_factor_lut * self.lut_mask[:self.num_movable_nodes]) + (area_increment * scale_factor_flop * self.flop_mask[:self.num_movable_nodes])
@@ -282,7 +297,7 @@ class AdjustNodeArea(nn.Module):
             if not adjust_area_flag:
                 return adjust_area_flag, adjust_resource_area_flag, adjust_route_area_flag, adjust_pin_area_flag
 
-            num_nodes = int(pos.numel() / 2)
+            num_nodes = pos.numel() // 2
             # adjust the size and positions of movable nodes
             # each movable node have its own inflation ratio, the shape of movable_nodes_ratio is (num_movable_nodes)
             # we keep the centers the same
@@ -318,14 +333,36 @@ class AdjustNodeArea(nn.Module):
                 node_size_x_filler[num_lut_fillers:] = new_flop_filler_length
                 node_size_y_filler[num_lut_fillers:] = new_flop_filler_length
 
+                #Old movable area for flops includes mlab placeholder filler area
+                if self.num_mlab_nodes > 0:
+                    mlab_ff_mask = self.is_mlab_filler_node[num_lut_fillers:num_lut_fillers+num_flop_fillers] == 1
+                    mlab_size_x = node_size_x_movable[self.is_mlab_node[:self.num_movable_nodes] == 1]
+                    mlab_size_y = node_size_y_movable[self.is_mlab_node[:self.num_movable_nodes] == 1]
+                    mlab_area = mlab_size_x * mlab_size_y
+                    #assign mlab area to placeholder fillers in FF
+                    node_size_x_filler[num_lut_fillers:][mlab_ff_mask] = mlab_size_x
+                    node_size_y_filler[num_lut_fillers:][mlab_ff_mask] = mlab_size_y
+                    new_movable_area_flop_sum = (node_size_x_movable * node_size_y_movable * self.flop_mask[:self.num_movable_nodes]).sum()
+                    if new_movable_area_flop_sum + mlab_area.sum() > self.total_place_area/2:
+                        logger.info(
+                            "FLOP: new movable area %.3E + mlab placeholder filler area %.3E > total_place_area  %.3E - CHECK!"
+                            % (new_movable_area_flop_sum, mlab_area.sum(),self.total_place_area/2))
+                    new_flop_filler_area = F.relu(self.total_place_area/2 - new_movable_area_flop_sum - mlab_area.sum())
+                    new_flop_filler_area /= (num_flop_fillers - self.num_mlab_nodes)
+                    new_flop_filler_length = new_flop_filler_area.sqrt()
+                    node_size_x_filler[num_lut_fillers:] = new_flop_filler_length
+                    node_size_y_filler[num_lut_fillers:] = new_flop_filler_length
+                    #Update new_flop_filler_area to correct value
+                    new_flop_filler_area = F.relu(self.total_place_area/2 - new_movable_area_flop_sum)
+                    new_flop_filler_area /= num_flop_fillers
+
                 new_filler_area_sum = F.relu(self.total_place_area - new_movable_area_sum)
-                #filler_nodes_length = new_filler_area_sum / old_filler_area_sum
             else:
                 new_filler_area_sum = old_filler_area_sum
                 new_movable_area_lut_sum = old_movable_area_lut_sum
-                new_lut_filler_area = old_filler_area_lut_sum
+                new_lut_filler_area = old_filler_area_lut_sum/num_lut_fillers
                 new_movable_area_flop_sum = old_movable_area_flop_sum
-                new_flop_filler_area = old_filler_area_sum
+                new_flop_filler_area = old_filler_area_flop_sum/num_flop_fillers
 
             logger.info(
                 "old total movable nodes area %.3E, filler area %.3E, total movable + filler area %.3E, total_place_area %.3E"

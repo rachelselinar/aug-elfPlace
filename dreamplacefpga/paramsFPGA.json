@@ -92,12 +92,20 @@
     "descripton" : "enable filler cells", 
     "default" : 1
     },
+"cc_net_weight" : {
+    "descripton" : "carry chain net weights", 
+    "default" : 1.0
+    },
+"dir_net_weight" : {
+    "descripton" : "directional carry chain net weights wt_x = 1.5*wt_y", 
+    "default" : 0
+    },
 "global_place_flag" : {
     "descripton" : "whether to run global placement", 
     "default" : 1
     },
 "legalize_flag" : {
-    "descripton" : "whether use internal legalization", 
+    "descripton" : "whether to run packing-legalization", 
     "default" : 1
     },
 "stop_overflow" : {
@@ -235,6 +243,10 @@
 "deterministic_flag" : {
     "descripton" : "Ensures reproducible run-to-run results (Slightly increases runtime)", 
     "default" : 1
+    },
+"name_map_file_dump" : {
+    "descripton" : "Creates mapping to simplify long node and net names - Use for debug purposes", 
+    "default" : 0
     },
 "enable_if" : {
     "descripton" : "Enable IF Writer", 

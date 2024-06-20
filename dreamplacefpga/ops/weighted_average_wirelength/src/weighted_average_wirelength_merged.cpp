@@ -29,7 +29,9 @@ int computeWeightedAverageWirelengthMergedLauncher(
     const unsigned char *net_mask,
     int num_nets,
     const T *inv_gamma,
-    T *partial_wl,
+    //T *partial_wl,
+    T *partial_wl_x,
+    T *partial_wl_y,
     T *grad_intermediate_x, T *grad_intermediate_y,
     int num_threads)
 {
@@ -85,8 +87,10 @@ int computeWeightedAverageWirelengthMergedLauncher(
                 exp_ny_sum += exp_ny;
             }
 
-            partial_wl[i] = xexp_x_sum / exp_x_sum - xexp_nx_sum / exp_nx_sum +
-                            yexp_y_sum / exp_y_sum - yexp_ny_sum / exp_ny_sum;
+            //partial_wl[i] = xexp_x_sum / exp_x_sum - xexp_nx_sum / exp_nx_sum +
+            //                yexp_y_sum / exp_y_sum - yexp_ny_sum / exp_ny_sum;
+            partial_wl_x[i] = xexp_x_sum / exp_x_sum - xexp_nx_sum / exp_nx_sum;
+            partial_wl_y[i] = yexp_y_sum / exp_y_sum - yexp_ny_sum / exp_ny_sum;
 
             T b_x = (*inv_gamma) / (exp_x_sum);
             T a_x = (1.0 - b_x * xexp_x_sum) / exp_x_sum;
@@ -139,6 +143,7 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     at::Tensor netpin_start,
     at::Tensor pin2net_map,
     at::Tensor net_weights,
+    at::Tensor net_weights_x,
     at::Tensor net_mask,
     at::Tensor inv_gamma,
     int num_threads)
@@ -152,6 +157,8 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     CHECK_CONTIGUOUS(netpin_start);
     CHECK_FLAT(net_weights);
     CHECK_CONTIGUOUS(net_weights);
+    CHECK_FLAT(net_weights_x);
+    CHECK_CONTIGUOUS(net_weights_x);
     CHECK_FLAT(net_mask);
     CHECK_CONTIGUOUS(net_mask);
     CHECK_FLAT(pin2net_map);
@@ -161,7 +168,9 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     int num_pins = pos.numel() / 2;
 
     // x, y interleave
-    at::Tensor partial_wl = at::zeros({num_nets}, pos.options());
+    //at::Tensor partial_wl = at::zeros({num_nets}, pos.options());
+    at::Tensor partial_wl_x = at::zeros({num_nets}, pos.options());
+    at::Tensor partial_wl_y = at::zeros({num_nets}, pos.options());
     // timed with grad_in yet
     at::Tensor grad_intermediate = at::zeros_like(pos);
 
@@ -173,16 +182,21 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
             DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
             num_nets,
             DREAMPLACE_TENSOR_DATA_PTR(inv_gamma, scalar_t),
-            DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t),
+            //DREAMPLACE_TENSOR_DATA_PTR(partial_wl, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(partial_wl_x, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(partial_wl_y, scalar_t),
             DREAMPLACE_TENSOR_DATA_PTR(grad_intermediate, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_intermediate, scalar_t) + num_pins,
             num_threads);
         if (net_weights.numel())
         {
-            partial_wl.mul_(net_weights);
+            //partial_wl.mul_(net_weights);
+            partial_wl_x.mul_(net_weights_x);
+            partial_wl_y.mul_(net_weights);
         }
     });
 
-    auto wl = partial_wl.sum();
+    //auto wl = partial_wl.sum();
+    auto wl = partial_wl_x.sum() + partial_wl_y.sum();
     //at::Tensor wl = at::zeros(1, pos.options());
     return {wl, grad_intermediate};
 }
@@ -203,6 +217,7 @@ at::Tensor weighted_average_wirelength_backward(
     at::Tensor netpin_start,
     at::Tensor pin2net_map,
     at::Tensor net_weights,
+    at::Tensor net_weights_x,
     at::Tensor net_mask,
     at::Tensor inv_gamma,
     int num_threads)
@@ -216,6 +231,8 @@ at::Tensor weighted_average_wirelength_backward(
     CHECK_CONTIGUOUS(netpin_start);
     CHECK_FLAT(net_weights);
     CHECK_CONTIGUOUS(net_weights);
+    CHECK_FLAT(net_weights_x);
+    CHECK_CONTIGUOUS(net_weights_x);
     CHECK_FLAT(net_mask);
     CHECK_CONTIGUOUS(net_mask);
     CHECK_FLAT(pin2net_map);
@@ -234,6 +251,7 @@ at::Tensor weighted_average_wirelength_backward(
                 DREAMPLACE_TENSOR_DATA_PTR(netpin_start, int),
                 DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                 DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                DREAMPLACE_TENSOR_DATA_PTR(net_weights_x, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + pos.numel() / 2,
                 netpin_start.numel() - 1,
                 num_threads);

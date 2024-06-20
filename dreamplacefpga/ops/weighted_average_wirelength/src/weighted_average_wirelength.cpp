@@ -23,7 +23,8 @@ int computeWeightedAverageWirelengthLauncher(
     T *exp_xy, T *exp_nxy,
     T *exp_xy_sum, T *exp_nxy_sum,
     T *xyexp_xy_sum, T *xyexp_nxy_sum,
-    T *wl,
+    //T *wl,
+    T *wl_x, T* wl_y,
     const T *grad_tensor,
     int num_threads,
     T *grad_x_tensor, T *grad_y_tensor);
@@ -45,6 +46,7 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     at::Tensor flat_netpin,
     at::Tensor netpin_start,
     at::Tensor net_weights,
+    at::Tensor net_weights_x, //Directional net weighting for carry chains
     at::Tensor net_mask,
     at::Tensor inv_gamma,
     int num_threads)
@@ -70,7 +72,10 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
     at::Tensor exp_nxy_sum = at::zeros({2, num_nets}, pos.options());
     at::Tensor xyexp_xy_sum = at::zeros({2, num_nets}, pos.options());
     at::Tensor xyexp_nxy_sum = at::zeros({2, num_nets}, pos.options());
-    at::Tensor wl = at::zeros({num_nets}, pos.options());
+    //Update to compute x and y separately
+    //at::Tensor wl = at::zeros(num_nets, pos.options());
+    at::Tensor wl_x = at::zeros(num_nets, pos.options());
+    at::Tensor wl_y = at::zeros(num_nets, pos.options());
 
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "computeWeightedAverageWirelengthLauncher", [&] {
         computeWeightedAverageWirelengthLauncher<scalar_t>(
@@ -85,7 +90,9 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
             DREAMPLACE_TENSOR_DATA_PTR(exp_xy, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_nxy, scalar_t),
             DREAMPLACE_TENSOR_DATA_PTR(exp_xy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_nxy_sum, scalar_t),
             DREAMPLACE_TENSOR_DATA_PTR(xyexp_xy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(xyexp_nxy_sum, scalar_t),
-            DREAMPLACE_TENSOR_DATA_PTR(wl, scalar_t),
+            //DREAMPLACE_TENSOR_DATA_PTR(wl, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(wl_x, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(wl_y, scalar_t),
             nullptr,
             num_threads,
             nullptr, nullptr);
@@ -93,10 +100,14 @@ std::vector<at::Tensor> weighted_average_wirelength_forward(
 
     if (net_weights.numel())
     {
-        wl.mul_(net_weights);
+        //Apply different weights for x and y directions
+        //wl.mul_(net_weights);
+        wl_x.mul_(net_weights_x);
+        wl_y.mul_(net_weights);
     }
 
-    return {wl.sum(), exp_xy, exp_nxy, exp_xy_sum, exp_nxy_sum, xyexp_xy_sum, xyexp_nxy_sum};
+    //return {wl.sum(), exp_xy, exp_nxy, exp_xy_sum, exp_nxy_sum, xyexp_xy_sum, xyexp_nxy_sum};
+    return {wl_x.sum() + wl_y.sum(), exp_xy, exp_nxy, exp_xy_sum, exp_nxy_sum, xyexp_xy_sum, xyexp_nxy_sum};
 }
 
 /// @brief Compute gradient
@@ -117,6 +128,7 @@ at::Tensor weighted_average_wirelength_backward(
     at::Tensor netpin_start,
     at::Tensor pin2net_map,
     at::Tensor net_weights,
+    at::Tensor net_weights_x,
     at::Tensor net_mask,
     at::Tensor inv_gamma,
     int num_threads)
@@ -151,6 +163,7 @@ at::Tensor weighted_average_wirelength_backward(
             DREAMPLACE_TENSOR_DATA_PTR(exp_xy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(exp_nxy_sum, scalar_t),
             DREAMPLACE_TENSOR_DATA_PTR(xyexp_xy_sum, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(xyexp_nxy_sum, scalar_t),
             nullptr,
+            nullptr,
             DREAMPLACE_TENSOR_DATA_PTR(grad_pos, scalar_t),
             num_threads,
             DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + pos.numel() / 2);
@@ -161,6 +174,7 @@ at::Tensor weighted_average_wirelength_backward(
                 DREAMPLACE_TENSOR_DATA_PTR(netpin_start, int),
                 DREAMPLACE_TENSOR_DATA_PTR(net_mask, unsigned char),
                 DREAMPLACE_TENSOR_DATA_PTR(net_weights, scalar_t),
+                DREAMPLACE_TENSOR_DATA_PTR(net_weights_x, scalar_t),
                 DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t), DREAMPLACE_TENSOR_DATA_PTR(grad_out, scalar_t) + pos.numel() / 2,
                 netpin_start.numel() - 1,
                 num_threads);
@@ -182,7 +196,9 @@ int computeWeightedAverageWirelengthLauncher(
     T *exp_xy, T *exp_nxy,
     T *exp_xy_sum, T *exp_nxy_sum,
     T *xyexp_xy_sum, T *xyexp_nxy_sum,
-    T *wl,
+    //T *wl,
+    T *wl_x,
+    T *wl_y,
     const T *grad_tensor,
     int num_threads,
     T *grad_x_tensor, T *grad_y_tensor)
@@ -254,8 +270,11 @@ int computeWeightedAverageWirelengthLauncher(
                 xyexp_nxy_sum[y_index] += x[pin_id] * exp_nxy[pin_id];
             }
 
-            wl[i] = xyexp_xy_sum[x_index] / exp_xy_sum[x_index] - xyexp_nxy_sum[x_index] / exp_nxy_sum[x_index] +
-                    xyexp_xy_sum[y_index] / exp_xy_sum[y_index] - xyexp_nxy_sum[y_index] / exp_nxy_sum[y_index];
+            //Split as x and y
+            //wl[i] = xyexp_xy_sum[x_index] / exp_xy_sum[x_index] - xyexp_nxy_sum[x_index] / exp_nxy_sum[x_index] +
+            //        xyexp_xy_sum[y_index] / exp_xy_sum[y_index] - xyexp_nxy_sum[y_index] / exp_nxy_sum[y_index];
+            wl_x[i] = xyexp_xy_sum[x_index] / exp_xy_sum[x_index] - xyexp_nxy_sum[x_index] / exp_nxy_sum[x_index];
+            wl_y[i] = xyexp_xy_sum[y_index] / exp_xy_sum[y_index] - xyexp_nxy_sum[y_index] / exp_nxy_sum[y_index];
         }
     }
 

@@ -11,27 +11,26 @@ inline __device__ DEFINE_COMPUTE_DEMAND_FUNCTION(T);
 
 template <typename T, typename AtomicOp>
 __global__ void __launch_bounds__(1024, 8) computeDemandMap(
-        const int *site_type_map, const T *node_size_x, const T *node_size_y,
-        const int num_bins_x, const int num_bins_y, 
-        const int width, const int height,
-        AtomicOp atomicAddOp,
-        typename AtomicOp::type *binCapMap0,
-        typename AtomicOp::type *binCapMap2,
-        typename AtomicOp::type *binCapMap3)
+        const int *site_type_map, const T *site_size_x, const T *site_size_y,
+        const T binW, const T binH, const int num_bins_x, const int num_bins_y, 
+        const int width, const int height, const int bins_xy,
+        AtomicOp atomicAddOp, typename AtomicOp::type *binCapMap)
 {
-    T binW = T(width)/T(num_bins_x);
-    T binH = T(height)/T(num_bins_y);
+    __shared__ int num_sites;
+    num_sites = width*height;
 
     int idx = blockIdx.x * blockDim.z + threadIdx.z;
-    if (idx < width*height)
+    if (idx < num_sites)
     {
-            int rw = int(idx/height);
-            int cl = int(idx%height);
+        int site_type = site_type_map[idx];
+        int site_typeId = site_type*bins_xy;
+        int rw = int(idx/height);
+        int cl = int(idx%height);
 
-        if (site_type_map[idx] == 1)
+        if (site_type > 0)
         {
-            T nodeX = node_size_x[1];
-            T nodeY = node_size_y[1];
+            T nodeX = site_size_x[site_type];
+            T nodeY = site_size_y[site_type];
             T col = DREAMPLACE_STD_NAMESPACE::round(cl/nodeY)*nodeY;
             int iLo = int(rw/binW);
             int jLo = int(col/binH);
@@ -45,64 +44,23 @@ __global__ void __launch_bounds__(1024, 8) computeDemandMap(
                 {
                     T h = compute_demand_function(j, binH, col, nodeY);
                     T area = w * h;
-                    atomicAddOp(&binCapMap0[i*num_bins_y + j], area);
-                }
-            }
-        } else if (site_type_map[idx] == 2)
-        {
-            T nodeX = node_size_x[2];
-            T nodeY = node_size_y[2];
-            T col = DREAMPLACE_STD_NAMESPACE::round(cl/nodeY)*nodeY;
-            int iLo = int(rw/binW);
-            int jLo = int(col/binH);
-            int iHi = DREAMPLACE_STD_NAMESPACE::min(int((rw + nodeX)/binW), num_bins_x-1);
-            int jHi = DREAMPLACE_STD_NAMESPACE::min(int((col + nodeY)/binH), num_bins_y-1);
-
-            for (int i = iLo + threadIdx.y; i <= iHi; i += blockDim.y)
-            {
-                T w = compute_demand_function(i, binW, T(rw), nodeX);
-                for (int j = jLo + threadIdx.x; j <= jHi; j += blockDim.x)
-                {
-                    T h = compute_demand_function(j, binH, col, nodeY);
-                    T area = w * h;
-                    atomicAddOp(&binCapMap2[i*num_bins_y + j], area);
-                }
-            }
-        } else if (site_type_map[idx] == 3)
-        {
-            T nodeX = node_size_x[3];
-            T nodeY = node_size_y[3];
-            T col = DREAMPLACE_STD_NAMESPACE::round(cl/nodeY)*nodeY;
-            int iLo = int(rw/binW);
-            int jLo = int(col/binH);
-            int iHi = DREAMPLACE_STD_NAMESPACE::min(int((rw + nodeX)/binW), num_bins_x-1);
-            int jHi = DREAMPLACE_STD_NAMESPACE::min(int((col + nodeY)/binH), num_bins_y-1);
-            for (int i = iLo + threadIdx.y; i <= iHi; i += blockDim.y)
-            {
-                T w = compute_demand_function(i, binW, T(rw), nodeX);
-                for (int j = jLo + threadIdx.x; j <= jHi; j += blockDim.x)
-                {
-                    T h = compute_demand_function(j, binH, col, nodeY);
-                    T area = w * h;
-                    atomicAddOp(&binCapMap3[i*num_bins_y + j], area);
+                    int index = site_typeId + i*num_bins_y + j;
+                    atomicAddOp(&binCapMap[index], area);
                 }
             }
         }
     }
 }
 
-
-
 template <typename T, typename AtomicOp>
 int computeDemandMapCallKernel(
-        const int *site_type_map, const T *node_size_x,
-        const T *node_size_y, const int num_bins_x,
-        const int num_bins_y, const int width, const int height,
+        const int *site_type_map, const T *site_size_x,
+        const T *site_size_y, const T binW, const T binH,
+        const int num_bins_x, const int num_bins_y,
+        const int width, const int height,
+        const int bins_xy,
         AtomicOp atomicAddOp,
-        typename AtomicOp::type *binCapMap0,
-        typename AtomicOp::type *binCapMap2,
-        typename AtomicOp::type *binCapMap3
-        )
+        typename AtomicOp::type *binCapMap)
 {
   int thread_count = 64;
   dim3 blockSize(2, 2, thread_count);
@@ -110,10 +68,9 @@ int computeDemandMapCallKernel(
   int block_count = (width*height - 1 + thread_count) / thread_count;
 
     computeDemandMap<<<block_count, blockSize>>>(
-            site_type_map, node_size_x, node_size_y,
-            num_bins_x, num_bins_y, width, height,
-            atomicAddOp, binCapMap0,
-            binCapMap2, binCapMap3);
+            site_type_map, site_size_x, site_size_y, binW, binH,
+            num_bins_x, num_bins_y, width, height, bins_xy,
+            atomicAddOp, binCapMap);
 
     return 0;
 }
@@ -122,17 +79,18 @@ int computeDemandMapCallKernel(
 template <typename T>
 int computeDemandMapCudaLauncher(
         const int *site_type_map,
-        const T *node_size_x, 
-        const T *node_size_y, 
+        const T *site_size_x, 
+        const T *site_size_y, 
+        const T binW,
+        const T binH,
+        const int num_site_types,
         const int num_bins_x, 
         const int num_bins_y, 
         const int width, 
         const int height, 
+        const int bins_xy,
         const int deterministic_flag,
-        T *binCapMap0,
-        T *binCapMap2,
-        T *binCapMap3
-        )
+        T *binCapMap)
 {
     if (deterministic_flag == 1)
     {
@@ -141,66 +99,48 @@ int computeDemandMapCudaLauncher(
     int integer_bits = max((int)ceil(log2(diearea)) + 1, 32);
     int fraction_bits = max(64 - integer_bits, 0);
     unsigned long long int scale_factor = (1UL << fraction_bits);
-    int num_bins = num_bins_x * num_bins_y;
+    int num_bins = num_site_types * num_bins_x * num_bins_y;
 
-    unsigned long long int *bin_cap_map_0 = NULL;
-    allocateCUDA(bin_cap_map_0, num_bins, unsigned long long int);
-    unsigned long long int *bin_cap_map_2 = NULL;
-    allocateCUDA(bin_cap_map_2, num_bins, unsigned long long int);
-    unsigned long long int *bin_cap_map_3 = NULL;
-    allocateCUDA(bin_cap_map_3, num_bins, unsigned long long int);
+    unsigned long long int *bin_cap_map = NULL;
+    allocateCUDA(bin_cap_map, num_bins, unsigned long long int);
 
     AtomicAddCUDA<unsigned long long int> atomicAddOp(scale_factor);
     int thread_count = 512;
 
     copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
                      thread_count>>>(
-        bin_cap_map_0, binCapMap0, scale_factor, num_bins);
-    copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
-                     thread_count>>>(
-        bin_cap_map_2, binCapMap2, scale_factor, num_bins);
-    copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
-                     thread_count>>>(
-        bin_cap_map_3, binCapMap3, scale_factor, num_bins);
+        bin_cap_map, binCapMap, scale_factor, num_bins);
 
     computeDemandMapCallKernel<T, decltype(atomicAddOp)>(
-                site_type_map, node_size_x, node_size_y,
-                num_bins_x, num_bins_y, width, height,
-                atomicAddOp, bin_cap_map_0, bin_cap_map_2, bin_cap_map_3);
+                site_type_map, site_size_x, site_size_y, binW, binH,
+                num_bins_x, num_bins_y, width, height, bins_xy,
+                atomicAddOp, bin_cap_map);
 
     copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
-                     thread_count>>>(binCapMap0,
-                     bin_cap_map_0, T(1.0 / scale_factor), num_bins);
-    copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
-                     thread_count>>>(binCapMap2,
-                     bin_cap_map_2, T(1.0 / scale_factor), num_bins);
-    copyScaleArray<<<(num_bins + thread_count - 1) / thread_count,
-                     thread_count>>>(binCapMap3,
-                     bin_cap_map_3, T(1.0 / scale_factor), num_bins);
+                     thread_count>>>(binCapMap,
+                     bin_cap_map, T(1.0 / scale_factor), num_bins);
 
-    destroyCUDA(bin_cap_map_0);
-    destroyCUDA(bin_cap_map_2);
-    destroyCUDA(bin_cap_map_3);
+    destroyCUDA(bin_cap_map);
   } else
     {
         AtomicAddCUDA<T> atomicAddOp;
 
         computeDemandMapCallKernel<T, decltype(atomicAddOp)>(
-                site_type_map, node_size_x, node_size_y,
-                num_bins_x, num_bins_y, width, height,
-                atomicAddOp, binCapMap0, binCapMap2, binCapMap3);
+                site_type_map, site_size_x, site_size_y, binW, binH,
+                num_bins_x, num_bins_y, width, height, bins_xy,
+                atomicAddOp, binCapMap);
     }
     return 0;
 }
 
 // manually instantiate the template function
-#define REGISTER_KERNEL_LAUNCHER(T)                         \
-    template int computeDemandMapCudaLauncher<T>(           \
-        const int *site_type_map, const T *node_size_x,     \
-        const T *node_size_y, const int num_bins_x,         \
-        const int num_bins_y, const int width,              \
-        const int height, const int deterministic_flag,     \
-        T *binCapMap0, T *binCapMap2, T *binCapMap3);
+#define REGISTER_KERNEL_LAUNCHER(T)                                 \
+    template int computeDemandMapCudaLauncher<T>(                   \
+        const int *site_type_map, const T *site_size_x,             \
+        const T *site_size_y, const T binW, const T binH,           \
+        const int num_site_types, const int num_bins_x,             \
+        const int num_bins_y, const int width, const int height,    \
+        const int bins_xy, const int deterministic_flag, T *binCapMap);
 
 REGISTER_KERNEL_LAUNCHER(float);
 REGISTER_KERNEL_LAUNCHER(double);

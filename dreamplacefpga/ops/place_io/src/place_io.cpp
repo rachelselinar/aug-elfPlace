@@ -65,27 +65,29 @@ void apply(PlaceDB& db,
         )
 {
     // assume all the movable nodes are in front of fixed nodes 
-    // this is ensured by PlaceDB::sortNodeByPlaceStatus()
-    for (int nIdx = 0; nIdx < db.numMovable(); ++nIdx)
+    if (db.numCCNodes() == 0)
     {
-        float xx = x.at(nIdx); 
-        float yy = y.at(nIdx); 
-        PlaceDB::index_type zz = z.at(nIdx); 
-        db.movNodeXLocs().at(nIdx) = xx;
-        db.movNodeYLocs().at(nIdx) = yy;
-        db.movNodeZLocs().at(nIdx) = zz;
-    }
-    for (int nIdx = 0; nIdx < db.numFixed(); ++nIdx)
+        for (int nIdx = 0; nIdx < db.numMovable()+db.numFixed(); ++nIdx)
+        {
+            float xx = x.at(nIdx); 
+            float yy = y.at(nIdx); 
+            PlaceDB::index_type zz = z.at(nIdx); 
+            db.nodeXLocs().at(nIdx) = xx;
+            db.nodeYLocs().at(nIdx) = yy;
+            db.nodeZLocs().at(nIdx) = zz;
+        }
+    } else
     {
-        int fIdx = nIdx + db.numMovable();
-        float xx = x.at(fIdx); 
-        float yy = y.at(fIdx); 
-        PlaceDB::index_type zz = z.at(fIdx); 
-        db.fixedNodeXLocs().at(nIdx) = xx;
-        db.fixedNodeYLocs().at(nIdx) = yy;
-        db.fixedNodeZLocs().at(nIdx) = zz;
+        for (int nIdx = 0; nIdx < db.numOrgMovable()+db.numFixed(); ++nIdx)
+        {
+            float xx = x.at(nIdx); 
+            float yy = y.at(nIdx); 
+            PlaceDB::index_type zz = z.at(nIdx); 
+            db.orgNodeXLocs().at(nIdx) = xx;
+            db.orgNodeYLocs().at(nIdx) = yy;
+            db.orgNodeZLocs().at(nIdx) = zz;
+        }
     }
-
 }
 
 PlaceDB place_io_forward(pybind11::str const& auxPath)

@@ -36,21 +36,19 @@ def placeFPGA(params):
     start = time.time()
     placedb = PlaceDBFPGA()
     placedb(params) #Call function
-    #logging.info("Reading database takes %.2f seconds" % (time.time()-start))
 
-    # Random Initial Placement 
+    # Placement 
     placer = NonLinearPlaceFPGA(params, placedb)
-    #logging.info("non-linear placement initialization takes %.2f seconds" % (time.time()-tt))
     metrics = placer(params, placedb)
-    logging.info("Placement completed in %.2f seconds" % (time.time()-start))
+    logging.info("Non-Linear Placement completed in %.2f seconds" % (time.time()-start))
 
     # write placement solution 
     path = "%s/%s" % (params.result_dir, params.design_name())
     if not os.path.exists(path):
         os.system("mkdir -p %s" % (path))
-    if params.global_place_flag and params.legalize_flag == 0: ##Only global placement is run
+    if params.global_place_flag and params.legalize_flag == 0 and placedb.sliceFF_ctrl_mode == "HALF": ##Only global placement is run
         gp_out_file = os.path.join(path, "%s.gp.pl" % (params.design_name()))
-        placedb.write(params, gp_out_file)
+        placedb.write(gp_out_file)
         
         ##Use elfPlace binary to run legalization and detatiled placement
         #elfPlace binary picks file named gp.pl in the current directory
@@ -66,12 +64,22 @@ def placeFPGA(params):
         else:
             logging.warning("External legalization & detailed placement engine NOT found at thirdparty/elfPlace_LG_DP")
 
-    elif params.legalize_flag: ## Run both global placement and detailed placement
-        final_out_file = os.path.join(path, "%s.final.%s" % (params.design_name(), params.solution_file_suffix()))
-        placedb.writeFinalSolution(params, final_out_file)
-        logging.info("Detailed Placement not run")
+    elif params.global_place_flag:
+        if params.legalize_flag: ## Run both global placement and legalization
+            logging.info("Detailed Placement not run")
+        else:
+            gp_out_file = os.path.join(path, "%s.gp.pl" % (params.design_name()))
+            placedb.write(gp_out_file)
+            logging.info("Legalization & detailed placement not run")
+
+    final_out_file = os.path.join(path, "%s.final.%s" % (params.design_name(), params.solution_file_suffix()))
+    placedb.writeFinalSolution(final_out_file)
     
-    logging.info("Completed Placement in %.3f seconds" % (time.time()-start))
+    logging.info("Total Runtime: %.3f seconds" % (time.time()-start))
+
+    ##For debug
+    if params.name_map_file_dump == 1:
+        placedb.writeMapSolution()
 
     if params.enable_if == 1:
         tt = time.time()

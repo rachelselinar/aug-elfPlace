@@ -20,86 +20,86 @@ class DemandMap(nn.Module):
     """ 
     @brief Build binCapMap and fixedDemandMap
     """
-    def __init__(self, site_type_map, num_bins_x, num_bins_y, width, height, node_size_x, node_size_y,
-                 xh, xl, yh, yl, deterministic_flag, device, num_threads):
+    def __init__(self, placedb, site_type_map, site_size_x, site_size_y,
+                 deterministic_flag, device, num_threads):
         """
         @brief initialization 
+        @param placedb 
         @param site_type_map
-        @param num_bins_x
-        @param num_bins_y
-        @param node_size_x
-        @param node_size_y
-        @param xh
-        @param xl
-        @param yh
-        @param yl
+        @param site_size_x
+        @param site_size_y
+        @param deterministic_flag 
         @param device 
         @param num_threads
         """
         super(DemandMap, self).__init__()
+        self.num_bins_x=placedb.num_bins_x
+        self.num_bins_y=placedb.num_bins_y
+        self.width=placedb.xh - placedb.xl
+        self.height=placedb.yh - placedb.yl
+        self.rsrc2compId_map=placedb.rsrc2compId_map
+        self.comp2rsrcId_map=placedb.comp2rsrcId_map
+        self.rsrc2siteMap = placedb.rsrc2siteMap
+        self.rsrcType2IndexMap = placedb.rsrcType2indexMap
+        self.siteType2IndexMap = placedb.siteType2indexMap
+        self.node_count=placedb.node_count
         self.site_type_map=site_type_map
-        self.num_bins_x=num_bins_x
-        self.num_bins_y=num_bins_y
-        self.width=width
-        self.height=height
-        self.node_size_x=node_size_x
-        self.node_size_y=node_size_y
-        self.xh=xh
-        self.xl=xl
-        self.yh=yh
-        self.yl=yl
+        self.site_size_x=site_size_x
+        self.site_size_y=site_size_y
         self.deterministic_flag = deterministic_flag
         self.device=device
         self.num_threads = num_threads
 
     def forward(self): 
-        binCapMap0 = torch.zeros((self.num_bins_x, self.num_bins_y), dtype=self.node_size_x.dtype, device=self.device)
-        binCapMap1 = torch.zeros_like(binCapMap0)
-        binCapMap2 = torch.zeros_like(binCapMap0)
-        binCapMap3 = torch.zeros_like(binCapMap0)
-        
-        if binCapMap0.is_cuda:
+        numSiteTypes = len(self.siteType2IndexMap)+1
+        binCapMap = torch.zeros((numSiteTypes, self.num_bins_x, self.num_bins_y), dtype=self.site_size_x.dtype, device=self.device)
+
+        binW = self.width/self.num_bins_x
+        binH = self.height/self.num_bins_y
+
+        if binCapMap.is_cuda:
             demandMap_cuda.forward(
                                    self.site_type_map.flatten(), 
-                                   self.node_size_x, 
-                                   self.node_size_y, 
+                                   self.site_size_x, 
+                                   self.site_size_y, 
                                    self.num_bins_x,
                                    self.num_bins_y,
                                    self.width, 
                                    self.height, 
-                                   self.deterministic_flag,
-                                   binCapMap0,
-                                   binCapMap2,
-                                   binCapMap3)
+                                   binW, binH,
+                                   numSiteTypes,
+                                   self.num_bins_x*self.num_bins_y,
+                                   binCapMap,
+                                   self.deterministic_flag)
         else:
             demandMap_cpp.forward(
                                    self.site_type_map.flatten(), 
-                                   self.node_size_x, 
-                                   self.node_size_y, 
+                                   self.site_size_x, 
+                                   self.site_size_y, 
                                    self.num_bins_x,
                                    self.num_bins_y,
                                    self.width, 
                                    self.height, 
-                                   binCapMap0,
-                                   binCapMap2,
-                                   binCapMap3,
+                                   numSiteTypes,
+                                   binCapMap,
                                    self.num_threads,
                                    self.deterministic_flag)
 
-        binCapMap1 = binCapMap0
-        # Generate fixed demand maps from the bin capacity maps
-        fixedDemMap0 = torch.zeros_like(binCapMap0)
-        fixedDemMap1 = torch.zeros_like(binCapMap0)
-        fixedDemMap2 = torch.zeros_like(binCapMap0)
-        fixedDemMap3 = torch.zeros_like(binCapMap0)
+        binArea = binW * binH
+        binCapMap = binArea - binCapMap
 
-        binX = (self.xh - self.xl)/self.num_bins_x
-        binY = (self.yh - self.yl)/self.num_bins_y
-        binArea = binX * binY
-        fixedDemMap0 = binArea - binCapMap0
-        fixedDemMap1 = binArea - binCapMap1
-        fixedDemMap2 = binArea - binCapMap2
-        fixedDemMap3 = binArea - binCapMap3
+        rsrcDemMap = torch.zeros((len(self.rsrcType2IndexMap),self.num_bins_x,self.num_bins_y), dtype=self.site_size_x.dtype, device=self.device)
 
-        return [fixedDemMap0, fixedDemMap1, fixedDemMap2, fixedDemMap3]
+        for rsrc, rsrcId in self.rsrcType2IndexMap.items():
+            compId = self.rsrc2compId_map[rsrcId]
+            if compId != -1:
+                sId = self.siteType2IndexMap[self.rsrc2siteMap[rsrc]]
+                rsrcDemMap[compId] = binCapMap[sId]
 
+        out = []
+
+        for idx in self.rsrc2compId_map:
+            if idx != -1:
+                out.append(rsrcDemMap[idx])
+
+        return out

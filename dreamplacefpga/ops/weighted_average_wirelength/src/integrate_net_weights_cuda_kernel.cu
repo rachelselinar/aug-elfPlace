@@ -18,6 +18,7 @@ __global__ void integrateNetWeights(
         const int* pin2net_map, 
         const unsigned char* net_mask, 
         const T* net_weights, 
+        const T* net_weights_x, 
         T* grad_x_tensor, T* grad_y_tensor, 
         int num_pins
         )
@@ -27,9 +28,10 @@ __global__ void integrateNetWeights(
     {
         int net_id = pin2net_map[i]; 
         T weight = net_weights[net_id]; 
+        T weight_x = net_weights_x[net_id]; 
         if (net_id >= 0 && net_mask[net_id])
         {
-            grad_x_tensor[i] *= weight; 
+            grad_x_tensor[i] *= weight_x; 
             grad_y_tensor[i] *= weight; 
         }
     }
@@ -40,11 +42,12 @@ void integrateNetWeightsCudaLauncher(
         const int* pin2net_map, 
         const unsigned char* net_mask, 
         const T* net_weights, 
+        const T* net_weights_x, 
         T* grad_x_tensor, T* grad_y_tensor, 
         int num_pins
         )
 {
-    integrateNetWeights<<<ceilDiv(num_pins, 256), 256>>>(pin2net_map, net_mask, net_weights, grad_x_tensor, grad_y_tensor, num_pins); 
+    integrateNetWeights<<<ceilDiv(num_pins, 256), 256>>>(pin2net_map, net_mask, net_weights, net_weights_x, grad_x_tensor, grad_y_tensor, num_pins); 
 }
 
 #define REGISTER_KERNEL_LAUNCHER(T) \
@@ -52,6 +55,7 @@ void integrateNetWeightsCudaLauncher(
             const int* pin2net_map, \
             const unsigned char* net_mask, \
             const T* net_weights, \
+            const T* net_weights_x, \
             T* grad_x_tensor, T* grad_y_tensor, \
             int num_pins\
             );

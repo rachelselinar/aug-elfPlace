@@ -157,17 +157,14 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                             cur_metric = metrics[-1][-1][-1]
                             prev_metric = metrics[-2][-1][-1]
 
-                            if Lgamma_step > 100 and ((cur_metric.overflow[0] < placedb.targetOverflow[0] and cur_metric.overflow[1] < placedb.targetOverflow[1] and 
-                                cur_metric.overflow[2] < placedb.targetOverflow[2] and cur_metric.overflow[3] < placedb.targetOverflow[3] and cur_metric.hpwl > prev_metric.hpwl) or 
-                                cur_metric.max_density.max() < 1.0) and (placedb.num_movable_nodes_fence_region[2:3].sum() == 0 or blockLegalIter >= 5):
-                                logging.info(
-                                    "Lgamma stopping criteria: %d > 100 and (( OVFL: %g < %g; %g < %g; %g < %g; %g < %g and HPWL %g > %g ) or %g < 1.0) and DSP/RAM block legal iter %g >= 5"
-                                    % (Lgamma_step, cur_metric.overflow[0], placedb.targetOverflow[0],
-                                       cur_metric.overflow[1], placedb.targetOverflow[1],
-                                       cur_metric.overflow[2], placedb.targetOverflow[2],
-                                       cur_metric.overflow[3], placedb.targetOverflow[3],
-                                       cur_metric.hpwl, prev_metric.hpwl,
-                                       cur_metric.max_density.max(), blockLegalIter))
+                            if Lgamma_step > 100 and (((cur_metric.overflow.cpu().numpy() < placedb.targetOverflow).sum() == len(placedb.targetOverflow) and cur_metric.hpwl > prev_metric.hpwl) or 
+                                cur_metric.max_density.max() < 1.0) and (placedb.num_movable_nodes_fence_region[placedb.dsp_ram_compIds].sum() == 0 or blockLegalIter >= 5):
+                                logInfo = "Lgamma stopping criteria: " + str(Lgamma_step) + " > 100 and (( OVFL: "
+                                for el in range(placedb.targetOverflow.size):
+                                    logInfo += str(round(cur_metric.overflow[el].item(),4)) + " < " + str(placedb.targetOverflow[el]) + "; "
+                                logInfo += " and HPWL " + '{:.4e}'.format(cur_metric.hpwl.item()) + " > " + '{:.4e}'.format(prev_metric.hpwl.item()) + " ) or "
+                                logInfo += str(round(cur_metric.max_density.max().item(),4)) + " < 1.0) and DSP/RAM block legal iter " + str(blockLegalIter) + " >= 5"
+                                logging.info(logInfo)
                                 return True
                         return False 
 
@@ -176,18 +173,13 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         if len(metrics) > 1: 
                             cur_metric = metrics[-1][-1]
                             prev_metric = metrics[-2][-1]
-                            if (cur_metric.overflow[0] < placedb.targetOverflow[0] and cur_metric.overflow[1] < placedb.targetOverflow[1] and 
-                                cur_metric.overflow[2] < placedb.targetOverflow[2] and cur_metric.overflow[3] < placedb.targetOverflow[3] and
-                                cur_metric.hpwl > prev_metric.hpwl and (placedb.num_movable_nodes_fence_region[2:3].sum() == 0 or blockLegalIter >= 5)) or cur_metric.max_density[-1] < 1.0:
-                                logging.info(
-                                    "Llambda stopping criteria: %d and (( OVFL: %g < %g; %g < %g; %g < %g; %g < %g and HPWL %g > %g ) or %g < 1.0)"
-                                    %
-                                    (Llambda_density_weight_step,
-                                     cur_metric.overflow[0], placedb.targetOverflow[0],
-                                     cur_metric.overflow[1], placedb.targetOverflow[1], 
-                                     cur_metric.overflow[2], placedb.targetOverflow[2],
-                                     cur_metric.overflow[3], placedb.targetOverflow[3], 
-                                     cur_metric.hpwl, prev_metric.hpwl, cur_metric.max_density.max()))
+                            if ((cur_metric.overflow.cpu().numpy() < placedb.targetOverflow).sum() == len(placedb.targetOverflow) and
+                                cur_metric.hpwl > prev_metric.hpwl and (placedb.num_movable_nodes_fence_region[placedb.dsp_ram_compIds].sum() == 0 or blockLegalIter >= 5)) or cur_metric.max_density[-1] < 1.0:
+                                logInfo = "Llambda stopping criteria: " + str(Llambda_density_weight_step) + " and (( OVFL: "
+                                for el in range(placedb.targetOverflow.size):
+                                    logInfo += str(round(cur_metric.overflow[el].item(),4)) + " < " + str(placedb.targetOverflow[el]) + "; "
+                                logInfo += " and HPWL " + '{:.4e}'.format(cur_metric.hpwl.item()) + " > " + '{:.4e}'.format(prev_metric.hpwl.item()) + " ) or "
+                                logInfo += str(round(cur_metric.max_density.max().item(),4)) + " < 1.0)"
                                 return True
                     return False 
 
@@ -254,13 +246,16 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                                 ### don't update cell location in that region
                                 mask = self.op_collections.fence_region_density_ops[region_id].pos_mask
                                 pos.data.masked_scatter_(mask, pos_bk[mask])
-                                ### immediately perform legalization (only once)
-                                # if(model.legal_mask[region_id] == 0):
-                                #     pos.data.copy_(self.op_collections.individual_legalize_op(pos, region_id))
-                                #     model.legal_mask[region_id] = 1
                     else:
                         optimizer.step()
-                    # optimizer.step()
+
+                    #TODO - For Stratix-IV: mlab is treated as lut type as sites for MLAB/LAB are not distinguished
+                    #Update locations of pseudo filler nodes
+                    if placedb.num_mlab_nodes > 0:
+                        mlab_locations_x = pos[:placedb.num_physical_nodes][placedb.is_mlab_node].data
+                        mlab_locations_y = pos[placedb.num_nodes:placedb.num_nodes+placedb.num_physical_nodes][placedb.is_mlab_node].data
+                        pos[:placedb.num_nodes][placedb.is_mlab_filler_node == 1].data.copy_(mlab_locations_x)
+                        pos[placedb.num_nodes:][placedb.is_mlab_filler_node == 1].data.copy_(mlab_locations_y)
 
                     # nesterov has already computed the objective of the next step 
                     if optimizer_name.lower() == "nesterov":
@@ -271,7 +266,7 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                     # actually reports the metric before step 
                     #logging.info(cur_metric)
                     # record the best outer cell overflow
-                    if best_metric[0] is None or (best_metric[0].overflow[0] > cur_metric.overflow[0] and best_metric[0].overflow[1] > cur_metric.overflow[1]):
+                    if best_metric[0] is None or (best_metric[0].overflow > cur_metric.overflow).sum().item() == cur_metric.overflow.size()[0]:
                         best_metric[0] = cur_metric
                         if best_pos[0] is None:
                             best_pos[0] = self.pos[0].data.clone()
@@ -327,7 +322,7 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                 Llambda_flat_iteration = 0
 
                 ### self-adaptive divergence check
-                overflow_list = np.ones((len(placedb.region_boxes)), dtype=np.float32)
+                overflow_list = np.ones((len(placedb.region_boxes)), dtype=placedb.dtype)
                 divergence_list = []
                 min_perturb_interval = 50
                 stop_placement = 0
@@ -345,10 +340,9 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         Llambda_metrics.append([])
                         Lsub_metrics = Llambda_metrics[-1]
                         for Lsub_step in range(model.Lsub_iteration):
-                            ## Jiaqi: divergence threshold should decrease as overflow decreases
-                            # diverge_threshold = 0.01 * overflow_list[-1] ? 0.001 overflow_list[1]??
-                            ## Jiaqi: only detect divergence when overflow is relatively low but not too low
-                            if(((placedb.targetOverflow * 1.1 < overflow_list).sum() == len(placedb.targetOverflow) and (overflow_list < placedb.targetOverflow * 4).sum() == len(placedb.targetOverflow)) and check_divergence(divergence_list, window=3, threshold=0.01 * overflow_list)):
+                            ## Divergence threshold should decrease as overflow decreases
+                            ## Only detect divergence when overflow is relatively low but not too low
+                            if(((placedb.targetOverflow * 1.1 < overflow_list).sum() == len(placedb.targetOverflow) and (overflow_list < placedb.targetOverflow).sum() == len(placedb.targetOverflow)) and check_divergence(divergence_list, window=3, threshold=0.01 * overflow_list)):
                                 self.pos[0].data.copy_(best_pos[0].data)
                                 stop_placement = 1
                                 allow_update = 0
@@ -360,7 +354,7 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                             one_descent_step(Lgamma_step, Llambda_density_weight_step, Lsub_step, iteration, Lsub_metrics)
                             #print("Time for one step: %g ms" %((time.time()-ct0)*1000))
                             iteration += 1
-                            if model.lock_mask is not None and model.lock_mask[2:4].sum() == 2:
+                            if model.lock_mask is not None and model.lock_mask[placedb.dsp_ram_compIds].sum() == len(placedb.dsp_ram_compIds):
                                 blockLegalIter += 1
                             # stopping criteria 
                             if Lsub_stop_criterion(Lgamma_step, Llambda_density_weight_step, Lsub_step, Lsub_metrics):
@@ -373,12 +367,13 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         if Llambda_stop_criterion(placedb, Lgamma_step, Llambda_density_weight_step, Llambda_metrics):
                             break 
 
-
-                        if params.routability_opt_flag and num_area_adjust < params.max_num_area_adjust and Llambda_metrics[-1][-1].overflow[0:2].max() < params.node_area_adjust_overflow: 
+                        if (params.routability_opt_flag and num_area_adjust < params.max_num_area_adjust and
+                            (Llambda_metrics[-1][-1].overflow[placedb.slice_compIds] < self.data_collections.node_area_adjust_overflow[placedb.slice_compIds]).sum().item() == len(placedb.slice_compIds)):
                             pos = model.data_collections.pos[0]
 
                             route_utilization_map = None 
                             pin_utilization_map = None
+                            resource_areas = None
                             if adjust_route_area_flag: 
                                 #Use RUDY for FPGA
                                 route_utilization_map = model.op_collections.route_utilization_map_op(pos)
@@ -411,14 +406,22 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                             if adjust_area_flag: 
                                 num_area_adjust += 1
 
+                                #Record position before instance area update
+                                best_metric[0] = Llambda_metrics[-1][-1]
+                                if best_pos[0] is None:
+                                    best_pos[0] = model.data_collections.pos[0].data.clone()
+                                else:
+                                    best_pos[0].data.copy_(model.data_collections.pos[0].data)
+
                                 #Compute new node areas
-                                model.data_collections.total_movable_node_area_fence_region[0] = (model.data_collections.node_size_x[:model.data_collections.num_physical_nodes] * model.data_collections.node_size_y[:model.data_collections.num_physical_nodes] * model.data_collections.lut_mask).sum()
-                                model.data_collections.total_movable_node_area_fence_region[1] = (model.data_collections.node_size_x[:model.data_collections.num_physical_nodes] * model.data_collections.node_size_y[:model.data_collections.num_physical_nodes] * model.data_collections.flop_mask).sum()
-                                model.data_collections.total_movable_node_area_fence_region[2] = (model.data_collections.node_size_x[:model.data_collections.num_physical_nodes] * model.data_collections.node_size_y[:model.data_collections.num_physical_nodes] * model.data_collections.dsp_mask).sum()
-                                model.data_collections.total_movable_node_area_fence_region[3] = (model.data_collections.node_size_x[:model.data_collections.num_physical_nodes] * model.data_collections.node_size_y[:model.data_collections.num_physical_nodes] * model.data_collections.ram_mask).sum()
+                                for el in range(len(placedb.slice_compIds)):
+                                    rsrcId = placedb.comp2rsrcId_map[el]
+                                    mask = model.data_collections.node2fence_region_map == rsrcId
+                                    model.data_collections.total_movable_node_area_fence_region[el] = (model.data_collections.node_size_x[:model.data_collections.num_physical_nodes] * model.data_collections.node_size_y[:model.data_collections.num_physical_nodes] * mask).sum()
                                 
                                 #Update node areas
                                 model.data_collections.node_areas = model.data_collections.node_size_x * model.data_collections.node_size_y
+
                                 # restart Llambda 
                                 model.op_collections.density_op.reset(model.data_collections) 
                                 model.op_collections.density_overflow_op.reset()
@@ -446,20 +449,32 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                                 break 
 
                         ##DSP/RAM legalization condition check
-                        if placedb.num_movable_nodes_fence_region[2:4].max() > 0 and Llambda_metrics[-1][-1].overflow[0] < placedb.targetOverflow[0] and Llambda_metrics[-1][-1].overflow[1] < placedb.targetOverflow[1] and Llambda_metrics[-1][-1].overflow[2] < placedb.targetOverflow[2] and Llambda_metrics[-1][-1].overflow[3] < placedb.targetOverflow[3]:
+                        if len(placedb.dsp_ram_compIds) > 0 and placedb.num_movable_nodes_fence_region[placedb.dsp_ram_compIds].max() > 0 and (Llambda_metrics[-1][-1].overflow < model.data_collections.targetOverflow).sum().item() == model.data_collections.targetOverflow.size()[0]:
                             pos = model.data_collections.pos[0]
-                            if model.lock_mask is not None and model.lock_mask[2:4].sum() > 1:
+                            if model.lock_mask is not None and model.lock_mask[placedb.dsp_ram_compIds].sum() == len(placedb.dsp_ram_compIds):
                                 break
-                            #Legalize DSP at the end of Global placement
-                            movVal = dsp_ram_legalization.LegalizeDSPRAMFunction.legalize(pos, placedb, 2, model)
-                            logging.info("Legalized DSPs with maxMov = %g and avgMov = %g" % (movVal[0], movVal[1]))
 
-                            #Legalize RAM at the end of Global placement
-                            moVal = dsp_ram_legalization.LegalizeDSPRAMFunction.legalize(pos, placedb, 3, model)
-                            logging.info("Legalized RAMs with maxMov = %g and avgMov = %g" % (moVal[0], moVal[1]))
+                            ## plot placement 
+                            #if params.plot_flag:
+                            #    cur_pos = pos.data.clone().cpu().numpy()
+                            #    self.plot(params, placedb, iteration, cur_pos)
+                            #    iteration += 1
+
+                            #Legalize DSP/RAM at the end of Global placement
+                            for lgId in placedb.dsp_ram_rsrcIds:
+                                if placedb.node_count[lgId] > 0:
+                                    movVal = dsp_ram_legalization.LegalizeDSPRAMFunction.legalize(pos, placedb, lgId, model)
+                                    logging.info("Legalized %d %s instances with maxMov = %g and avgMov = %g" %
+                                                  (placedb.node_count[lgId], placedb.rsrcTypes[lgId], movVal[0], movVal[1]))
+
+                            ## plot placement 
+                            #if params.plot_flag:
+                            #    cur_pos = pos.data.clone().cpu().numpy()
+                            #    self.plot(params, placedb, iteration, cur_pos)
+                            #    iteration += 1
 
                             #Lock DSP/RAM locations
-                            model.lock_mask[2:4] = True
+                            model.lock_mask[placedb.dsp_ram_compIds] = True
                             model.update_mask = ~model.lock_mask
                             pos.grad[0:placedb.num_physical_nodes].data.masked_fill_(model.data_collections.dsp_ram_mask, 0.0)
                             pos.grad[placedb.num_nodes:placedb.num_nodes+placedb.num_physical_nodes].data.masked_fill_(model.data_collections.dsp_ram_mask, 0.0)
@@ -477,7 +492,6 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
 
                             model.op_collections.update_gamma_op(Lgamma_step, model.overflow)
 
-                            #model.reset_density_weight_lockDSPRAM(params, placedb, 1.0)
                             model.reset_density_weight(params, placedb, 1.0)
                             #logging.info("density_weight = [%s]" % ", ".join(["%.3E" % i for i in model.density_weight.cpu().numpy().tolist()]))
 
@@ -539,7 +553,7 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         # valid_margin = 0 if valid_margin < 5 else valid_margin
                         ### move cells into fence regions
                         for i in range(num_regions):
-                            if i == 4:
+                            if i in placedb.fixed_rsrcIds:
                                 continue
                             mask = (node2fence_region_map == i)
                             pos_x_i, pos_y_i = pos_x[mask], pos_y[mask]
@@ -593,7 +607,7 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         ### move cells out of fence regions
                         # margin = 0
                         # valid_margin = 100 * 0.99**iteration
-                        exclude_mask = (node2fence_region_map > 3)
+                        exclude_mask = (node2fence_region_map == placedb.rIOIdx) | (node2fence_region_map == placedb.rPLLIdx)
                         pos_x_ex, pos_y_ex = pos_x[exclude_mask], pos_y[exclude_mask]
                         node_size_x_ex, node_size_y_ex = node_size_x[exclude_mask], node_size_y[exclude_mask]
                         pos_xh_ex = pos_x_ex + node_size_x_ex
@@ -642,8 +656,8 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                         pos_y.masked_scatter_(exclude_mask, pos_y_ex + delta_y_min)
 
                         ### write back solution
-                        fillers = np.zeros(self.num_filler_nodes, dtype=params.dtype)
-                        fmask = placedb.node2fence_region_map == 4
+                        fillers = np.zeros(self.num_filler_nodes, dtype=placedb.dtype)
+                        fmask = placedb.io_mask
                         fillMask = np.concatenate((fmask,fillers.astype(bool),fmask,fillers.astype(bool)),axis=0)
                         allLoc = np.concatenate((placedb.node_x, fillers, placedb.node_y, fillers),axis=0)
                         omask = ~fmask
@@ -655,22 +669,28 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
 
                 # in case of divergence, use the best metric
                 ### always rollback to best outer cell overflow
-                # self.pos[0].data.copy_(best_pos[0].data)
-                #logging.error(
-                #        "possible DIVERGENCE detected, roll back to the best position recorded"
-                #    )
                 last_metric = all_metrics[-1][-1][-1]
                 self.targetOverflow = torch.tensor(placedb.targetOverflow, dtype=torch.float, device=self.device)
                 if last_metric.overflow.max() > max(self.targetOverflow.max(), best_metric[0].overflow.max()) and last_metric.hpwl > best_metric[0].hpwl:
                     self.pos[0].data.copy_(best_pos[0].data)
-                    logging.error(
-                        "possible DIVERGENCE detected, roll back to the best position recorded"
-                    )
+                    logging.error("possible DIVERGENCE detected, roll back to the best position recorded")
                     all_metrics.append([best_metric])
                     logging.info(best_metric[0])
 
+                    #Legalize DSP/RAMs if any
+                    if ((len(placedb.dsp_ram_compIds) > 0 and
+                        placedb.num_movable_nodes_fence_region[placedb.dsp_ram_compIds].max() > 0) and
+                        (model.lock_mask is not None and
+                        model.lock_mask[placedb.dsp_ram_compIds].sum() != len(placedb.dsp_ram_compIds))):
+
+                        for lgId in placedb.dsp_ram_rsrcIds:
+                            if placedb.node_count[lgId] > 0:
+                                movVal = dsp_ram_legalization.LegalizeDSPRAMFunction.legalize(pos, placedb, lgId, model)
+                                logging.info("Legalized %s with maxMov = %g and avgMov = %g" % (placedb.rsrcTypes[lgId], movVal[0], movVal[1]))
+                        model.lock_mask[placedb.dsp_ram_compIds] = True
+                        model.update_mask = ~model.lock_mask
+
                 #logging.info("optimizer %s takes %.3f seconds" % (optimizer_name, time.time()-tt))
-                #print("Overall optimization time:  %.3f seconds" % (time.time()-optimization_timer))
             # recover node size and pin offset for legalization, since node size is adjusted in global placement
             if params.routability_opt_flag: 
                 with torch.no_grad(): 
@@ -711,11 +731,55 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
         if params.dump_global_place_solution_flag: 
             self.dump(params, placedb, self.pos[0].cpu(), "%s.lg.pklz" %(params.design_name()))
 
+        half_pos = self.pos[0].shape[0]//2
+
+        ## plot placement 
+        #if params.plot_flag: 
+        #    cur_pos = self.pos[0].data.clone().cpu().numpy()
+        #    self.plot(params, placedb, 12345, cur_pos)
+
+        if params.global_place_flag == 1 and placedb.num_ccNodes > 0:
+            #Update sizes & GP location of cc nodes
+            model.data_collections.org_node_size_x[placedb.new2org_node_map[:placedb.num_movable_nodes]] = model.data_collections.node_size_x[:placedb.num_movable_nodes]
+            model.data_collections.org_node_size_y[placedb.new2org_node_map[:placedb.num_movable_nodes]] = model.data_collections.node_size_y[:placedb.num_movable_nodes]
+            model.data_collections.org_node_size_x[placedb.org_num_movable_nodes:placedb.org_num_physical_nodes] = model.data_collections.node_size_x[placedb.num_movable_nodes:placedb.num_physical_nodes]
+            model.data_collections.org_node_size_y[placedb.org_num_movable_nodes:placedb.org_num_physical_nodes] = model.data_collections.node_size_y[placedb.num_movable_nodes:placedb.num_physical_nodes]
+
+            model.data_collections.org_node_x[placedb.new2org_node_map[:placedb.num_movable_nodes]] = self.pos[0][:placedb.num_movable_nodes].data
+            model.data_collections.org_node_y[placedb.new2org_node_map[:placedb.num_movable_nodes]] = self.pos[0][half_pos:half_pos+placedb.num_movable_nodes].data
+            model.data_collections.org_node_x[placedb.org_num_movable_nodes:placedb.org_num_physical_nodes] = self.pos[0][placedb.num_movable_nodes:placedb.num_physical_nodes].data
+            model.data_collections.org_node_size_y[placedb.org_num_movable_nodes:placedb.org_num_physical_nodes] = self.pos[0][half_pos+placedb.num_movable_nodes:half_pos+placedb.num_physical_nodes]
+
+            ccYLocIncr = 1/placedb.SLICE_CAPACITY
+            for ccId in range(placedb.num_carry_chains):
+                org_cc_indices = np.where(placedb.org_node2ccId_map == ccId)[0]
+                curr_cc_index = placedb.cc2nodeId_map[ccId]
+                elCount = placedb.cc_element_count[ccId]
+                model.data_collections.org_node_size_x[org_cc_indices] = model.data_collections.node_size_x[curr_cc_index]
+                model.data_collections.org_node_size_y[org_cc_indices] = model.data_collections.node_size_y[curr_cc_index]/elCount
+                model.data_collections.org_node_x[org_cc_indices] = self.pos[0][curr_cc_index].data
+                yoffset = torch.arange(elCount-1, -1, -1, dtype=self.data_collections.dtype, device=self.device)*ccYLocIncr
+                model.data_collections.org_node_y[org_cc_indices] = self.pos[0][half_pos:][curr_cc_index].data + yoffset
+                #print("Updated Carry chain %d at (%.2f, %.2f) => org (%.2f, %.2f)"%
+                #    (ccId, self.pos[0][curr_cc_index].data, self.pos[0][half_pos:][curr_cc_index].data,
+                #    model.data_collections.org_node_x[org_cc_indices[0]],
+                #    model.data_collections.org_node_y[org_cc_indices[0]]))
+
+            model.data_collections.org_node_areas = model.data_collections.org_node_size_x * model.data_collections.org_node_size_y
+            placedb.num_movable_nodes = placedb.org_num_movable_nodes
+            placedb.num_physical_nodes = placedb.org_num_physical_nodes
+            self.pos[0][:placedb.num_physical_nodes].data.copy_(self.data_collections.org_node_x)
+            self.pos[0][half_pos:half_pos+placedb.num_physical_nodes].data.copy_(self.data_collections.org_node_y)
+
+        ## plot placement 
+        #if params.plot_flag: 
+        #    cur_pos = self.pos[0].data.clone().cpu().numpy()
+        #    self.plot(params, placedb, 5678, cur_pos)
+
         # legalization 
         if params.legalize_flag:
             if params.global_place_flag == 0:
-                #TODO: Load from GP results
-                # global placement may run in multiple stages according to user specification 
+                #Load from GP results
                 for global_place_params in params.global_place_stages:
 
                     if params.gpu: 
@@ -733,17 +797,42 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                     for line in f:
                         tokens = line.split()
                         if len(tokens) > 0:
-                            nodeId = placedb.node_name2id_map[tokens[0]]
-                            self.data_collections.node_x[nodeId].data.fill_(float(tokens[1]))
-                            self.data_collections.node_y[nodeId].data.fill_(float(tokens[2]))
-                            self.data_collections.node_z[nodeId].data.fill_(int(tokens[3]))
+                            if tokens[0] in placedb.node_name2id_map:
+                                nodeId = placedb.node_name2id_map[tokens[0]]
+                                self.data_collections.node_x[nodeId].data.fill_(placedb.dtype(tokens[1]))
+                                self.data_collections.node_y[nodeId].data.fill_(placedb.dtype(tokens[2]))
+                                self.data_collections.node_z[nodeId].data.fill_(int(tokens[3]))
+                                if placedb.num_ccNodes:
+                                    nodeId = placedb.org_node_name2id_map[tokens[0]]
+                                    self.data_collections.org_node_x[nodeId].data.fill_(placedb.dtype(tokens[1]))
+                                    self.data_collections.org_node_y[nodeId].data.fill_(placedb.dtype(tokens[2]))
+                                    self.data_collections.org_node_z[nodeId].data.fill_(int(tokens[3]))
                 self.pos[0][:placedb.num_physical_nodes].data.copy_(self.data_collections.node_x)
-                self.pos[0][placedb.num_nodes:placedb.num_nodes+placedb.num_physical_nodes].data.copy_(self.data_collections.node_y)
+                self.pos[0][half_pos:half_pos+placedb.num_physical_nodes].data.copy_(self.data_collections.node_y)
                 logging.info("Read Global Placement solution from %s" % (place_file))
                 cur_metric = EvalMetricsFPGA(iteration)
                 all_metrics.append(cur_metric)
                 cur_metric.evaluate(placedb, {"hpwl" : self.op_collections.hpwl_op}, self.pos[0])
                 logging.info(cur_metric)
+                iteration += 1
+
+            #Break carry chain nodes as single entity
+            if placedb.num_ccNodes > 0:
+                placedb.num_movable_nodes = placedb.org_num_movable_nodes
+                placedb.num_physical_nodes = placedb.org_num_physical_nodes
+                self.pos[0][:placedb.num_physical_nodes].data.copy_(self.data_collections.org_node_x)
+                self.pos[0][half_pos:half_pos+placedb.num_physical_nodes].data.copy_(self.data_collections.org_node_y)
+                node_areas = self.data_collections.org_node_areas
+                lut_mask = placedb.org_lut_mask
+                flop_mask = placedb.org_flop_mask
+                lut_flop_mask = placedb.org_lut_flop_mask
+                node_z = self.data_collections.org_node_z
+            else: 
+                node_areas = self.data_collections.node_areas
+                lut_mask = placedb.lut_mask
+                flop_mask = placedb.flop_mask
+                lut_flop_mask = placedb.lut_flop_mask
+                node_z = self.data_collections.node_z
 
             #Perform sorting of pin, net, node
             _, sortedNetIdx = torch.sort(self.data_collections.net2pincount_map)
@@ -772,33 +861,32 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
             sortedNodeMap = sortedNodeMap.to(torch.int32)
 
             tt = time.time()
+
+            if placedb.num_ccNodes == 0:
+                preconditioner = model.precondWL[:placedb.num_physical_nodes]
+            else:
+                preconditioner = model.lg_precondWL[:placedb.num_physical_nodes]
             
-            self.op_collections.lut_ff_legalization_op.initialize(self.pos[0], model.precondWL[:placedb.num_physical_nodes], sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap)
+            self.op_collections.lut_ff_legalization_op.initialize(self.pos[0], preconditioner, sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap)
 
             DLStatus = 1
             dlIter = 0
-        
-            ##DBG
-            #pdb.set_trace()
-            temp_pos = self.pos[0].detach().clone()
 
             #For runDLIter stopping criteria
+            MAX_DL_ITERS=100
+            MIN_DL_ITERS=50
+            ITERS_INCREASE=50
+            STOP_ITERS=150
+            STABLE_ITER_COUNT=5
+            REM_INSTANCE_RATIO=0.09
             activeStatus = torch.zeros(placedb.num_sites_x*placedb.num_sites_y, dtype=torch.int, device=self.device)
-            illegalStatus = torch.zeros(placedb.num_nodes, dtype=torch.int, device=self.device)
+            illegalStatus = torch.zeros(placedb.num_physical_nodes, dtype=torch.int, device=self.device)
 
             iter_stable = 0
             prevAct = 0
 
             while (DLStatus == 1):
-                self.op_collections.lut_ff_legalization_op.runDLIter(self.pos[0], model.precondWL[:placedb.num_physical_nodes], sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap, activeStatus, illegalStatus, dlIter)
-
-                #######DBG - Print HPWL
-                #temp_pos.data.copy_(self.op_collections.lut_ff_legalization_op.cacheSol_dbg(temp_pos))
-                #cur_metric = EvalMetricsFPGA(iteration)
-                #all_metrics.append(cur_metric)
-                #cur_metric.evaluate(placedb, {"hpwl" : self.op_collections.hpwl_op}, temp_pos)
-                #logging.info(cur_metric)
-                ####DBG
+                self.op_collections.lut_ff_legalization_op.runDLIter(self.pos[0], preconditioner, sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap, activeStatus, illegalStatus, dlIter)
 
                 if prevAct == illegalStatus.sum().item() + activeStatus.sum().item():
                     iter_stable = iter_stable + 1
@@ -814,20 +902,70 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
                     DLStatus = 0
 
                 prevAct=illegalStatus.sum().item() + activeStatus.sum().item()
-                #DBG
-                #pdb.set_trace()
-                if dlIter > 100 or iter_stable > 5:
+
+                if dlIter > STOP_ITERS or (dlIter > MIN_DL_ITERS and iter_stable > STABLE_ITER_COUNT):
                     DLStatus = 0
 
-    
-            #pdb.set_trace()
-            self.pos[0].data.copy_(self.op_collections.lut_ff_legalization_op.ripUP_Greedy_slotAssign(self.pos[0], model.precondWL[:placedb.num_physical_nodes], self.data_collections.node_z[:placedb.num_movable_nodes], sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap))
+                if dlIter > MAX_DL_ITERS and iter_stable < STABLE_ITER_COUNT:
+                    if illegalStatus.sum().item() < REM_INSTANCE_RATIO*placedb.num_physical_nodes:
+                        DLStatus = 0
+                    else:
+                        MAX_DL_ITERS += ITERS_INCREASE
+
+            #Use inflated instance areas for ripUP & greedy LG
+            avgLUTArea = node_areas[:placedb.num_physical_nodes][lut_mask].sum()
+            avgLUTArea /= placedb.node_count[placedb.rLUTIdx]
+            avgFFArea = node_areas[:placedb.num_physical_nodes][flop_mask].sum()
+            avgFFArea /= placedb.node_count[placedb.rFFIdx]
+            #Inst Areas
+            inst_areas = node_areas[:placedb.num_physical_nodes].detach().clone()
+            inst_areas[~lut_flop_mask] = 0.0 #Area of non SLICE nodes set to 0.0
+            inst_areas[lut_mask] /= avgLUTArea
+            inst_areas[flop_mask] /= avgFFArea
+
+            self.pos[0].data.copy_(self.op_collections.lut_ff_legalization_op.ripUP_Greedy_slotAssign(self.pos[0], preconditioner, node_z[:placedb.num_movable_nodes], sortedNodeMap, sortedNodeIdx, sortedNetMap, sortedNetIdx, sortedPinMap, inst_areas))
+
+            #Terminate if legalization has errors
+            if (self.pos[0] == -1).sum().item() > 0:
+                sys.exit("[ERROR] " + str((self.pos[0] == -1).sum().item()) + " instances were not legalized - Please ensure there is sufficient space in sitemap and/or revisit LG algorithm")
+
             logging.info("legalization takes %.3f seconds" % (time.time()-tt))
             cur_metric = EvalMetricsFPGA(iteration)
             all_metrics.append(cur_metric)
             cur_metric.evaluate(placedb, {"hpwl" : self.op_collections.hpwl_op}, self.pos[0])
             logging.info(cur_metric)
             iteration += 1
+
+        # recover node size and pin offset for plot, since node size is adjusted in global placement
+        if params.routability_opt_flag: 
+            with torch.no_grad(): 
+                # convert lower left to centers 
+                # convert lower left to centers
+                #self.pos[0][:placedb.num_movable_nodes].add_(
+                #    self.data_collections.
+                #    node_size_x[:placedb.num_movable_nodes] / 2)
+                #self.pos[0][placedb.num_nodes:placedb.num_nodes +
+                #            placedb.num_movable_nodes].add_(
+                #                self.data_collections.
+                #                node_size_y[:placedb.num_movable_nodes] /
+                #                2)
+                self.data_collections.node_size_x.copy_(
+                    self.data_collections.original_node_size_x)
+                self.data_collections.node_size_y.copy_(
+                    self.data_collections.original_node_size_y)
+                ## use fixed centers as the anchor
+                #self.pos[0][:placedb.num_movable_nodes].sub_(
+                #    self.data_collections.
+                #    node_size_x[:placedb.num_movable_nodes] / 2)
+                #self.pos[0][placedb.num_nodes:placedb.num_nodes +
+                #            placedb.num_movable_nodes].sub_(
+                #                self.data_collections.
+                #                node_size_y[:placedb.num_movable_nodes] /
+                #                2)
+                self.data_collections.pin_offset_x.copy_(
+                    self.data_collections.original_pin_offset_x)
+                self.data_collections.pin_offset_y.copy_(
+                    self.data_collections.original_pin_offset_y)
 
         # plot placement 
         #if params.plot_flag: 
@@ -836,6 +974,41 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
         # dump legalization solution for detailed placement 
         if params.dump_legalize_solution_flag: 
             self.dump(params, placedb, self.pos[0].cpu(), "%s.dp.pklz" %(params.design_name()))
+
+        # detailed placement
+        if params.detailed_place_flag: 
+            place_file=params.lg_place_sol
+            if params.global_place_flag == 0 and params.legalize_flag == 0 and place_file != "":
+                #Load legal placement results from file
+                for global_place_params in params.global_place_stages:
+
+                    if params.gpu: 
+                        torch.cuda.synchronize()
+                    tt = time.time()
+                    # construct model and optimizer 
+                    density_weight = 0.0
+                    # construct placement model 
+                    model = PlaceObjFPGA(density_weight, params, placedb, self.data_collections, self.op_collections, global_place_params).to(self.data_collections.pos[0].device)
+                    print("Model constructed in %g ms"%((time.time()-tt)*1000))
+
+                with open (place_file,  "r") as f:
+                    for line in f:
+                        tokens = line.split()
+                        if len(tokens) > 0:
+                            nodeId = placedb.node_name2id_map[tokens[0]]
+                            self.data_collections.node_x[nodeId].data.fill_(float(tokens[1]))
+                            self.data_collections.node_y[nodeId].data.fill_(float(tokens[2]))
+                            self.data_collections.node_z[nodeId].data.fill_(int(tokens[3]))
+                self.pos[0][:placedb.num_physical_nodes].data.copy_(self.data_collections.node_x)
+                self.pos[0][half_pos:half_pos+placedb.num_physical_nodes].data.copy_(self.data_collections.node_y)
+
+                ##Update locations for all instances from placement solution
+                logging.info("Read Legalized Placement solution from %s" % (place_file))
+                cur_metric = EvalMetricsFPGA(iteration)
+                all_metrics.append(cur_metric)
+                cur_metric.evaluate(placedb, {"hpwl" : self.op_collections.hpwl_op}, self.pos[0])
+                logging.info(cur_metric)
+                iteration += 1
 
         ## detailed placement 
         #if params.detailed_place_flag: 
@@ -848,17 +1021,24 @@ class NonLinearPlaceFPGA (BasicPlaceFPGA):
         #    logging.info(cur_metric)
         #    iteration += 1
 
+        if placedb.num_ccNodes:
+            node_z = self.data_collections.org_node_z
+        else: 
+            node_z = self.data_collections.node_z
+        half_pos = self.pos[0].shape[0]//2
+
         # save results 
         cur_pos = self.pos[0].data.clone().cpu().numpy()
-        node_z = self.data_collections.node_z[:placedb.num_movable_nodes].data.clone().cpu().numpy() 
+        node_z = node_z[:placedb.num_movable_nodes].data.clone().cpu().numpy() 
         # apply solution 
         placedb.apply(
-            params, cur_pos[0:placedb.num_movable_nodes],
-            cur_pos[placedb.num_nodes:placedb.num_nodes +
-                    placedb.num_movable_nodes],
+            cur_pos[0:placedb.num_movable_nodes],
+            cur_pos[half_pos:half_pos + placedb.num_movable_nodes],
             node_z)
+
         # plot placement 
         if params.plot_flag: 
             self.plot(params, placedb, iteration, cur_pos)
+
         return all_metrics 
 

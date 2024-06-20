@@ -40,11 +40,16 @@ class PreconditionOpFPGA:
         self.placedb = placedb
         self.data_collections = data_collections
         self.iteration = 0
-        self.movablenode2fence_region_map_clamp = data_collections.node2fence_region_map[:placedb.num_movable_nodes].clamp(max=len(placedb.region_boxes)).long()
         self.filler2fence_region_map = torch.zeros(placedb.num_filler_nodes, device=data_collections.pos[0].device, dtype=torch.long)
-        for i in range(len(placedb.region_boxes)):
-            filler_beg, filler_end = placedb.filler_start_map[i:i+2]
-            self.filler2fence_region_map[filler_beg:filler_end] = i
+        self.movablenode2fence_region_map_clamp = data_collections.node2fence_region_map[:placedb.num_movable_nodes].long()
+        for idx in range(placedb.regions):
+            i = placedb.rsrc2compId_map[idx]
+            if i != -1:
+                filler_beg, filler_end = placedb.filler_start_map[i:i+2]
+                self.filler2fence_region_map[filler_beg:filler_end] = i
+                #Adjust movablenode2fence_region_map from rsrcId to compId
+                if idx != i:
+                    self.movablenode2fence_region_map_clamp[data_collections.node2fence_region_map[:placedb.num_movable_nodes] == idx] = i
 
     def __call__(self, grad, density_weight, precondWL, update_mask=None):
         """Introduce alpha parameter to avoid divergence.
@@ -54,11 +59,13 @@ class PreconditionOpFPGA:
             #FPGA Preconditioning 
             node_areas = self.data_collections.node_areas.clone()
 
-            for mk in range(len(self.placedb.region_boxes)):
-                mask = self.data_collections.node2fence_region_map[:self.placedb.num_movable_nodes] == mk
-                node_areas[:self.placedb.num_movable_nodes].masked_scatter_(mask, node_areas[:self.placedb.num_movable_nodes][mask]*density_weight[mk])
-                filler_beg, filler_end = self.placedb.filler_start_map[mk:mk+2]
-                node_areas[self.placedb.num_nodes-self.placedb.num_filler_nodes+filler_beg:self.placedb.num_nodes-self.placedb.num_filler_nodes+filler_end] *= density_weight[mk]
+            for imk in range(self.placedb.regions):
+                mk = self.placedb.rsrc2compId_map[imk]
+                if mk != -1:
+                    mask = self.data_collections.node2fence_region_map[:self.placedb.num_movable_nodes] == imk
+                    node_areas[:self.placedb.num_movable_nodes].masked_scatter_(mask, node_areas[:self.placedb.num_movable_nodes][mask]*density_weight[mk])
+                    filler_beg, filler_end = self.placedb.filler_start_map[mk:mk+2]
+                    node_areas[self.placedb.num_nodes-self.placedb.num_filler_nodes+filler_beg:self.placedb.num_nodes-self.placedb.num_filler_nodes+filler_end] *= density_weight[mk]
 
             precond = precondWL + node_areas
             #Use alpha to avoid divergence
@@ -122,7 +129,7 @@ class PlaceObjFPGA(nn.Module):
         ### this is to avoid repeated legalization
         ### 1 represents already legal
         self.legal_mask = torch.zeros(placedb.regions)
-        self.legal_mask[4] = 1 #IOs are legal
+        self.legal_mask[placedb.fixed_rsrcIds] = 1 #IOs are fixed
 
         self.params = params
         self.placedb = placedb
@@ -134,18 +141,20 @@ class PlaceObjFPGA(nn.Module):
 
         self.gpu = params.gpu
         self.precondWL = self.op_collections.precondwl_op()
+        if placedb.num_ccNodes > 0:
+            self.lg_precondWL = self.op_collections.lg_precondition_op()
         self.fixedDemMaps = self.op_collections.demandMap_op()
 
         ### different fence region needs different density weights in multi-electric field algorithm
         self.density_weight = torch.tensor(
-            [density_weight]*(len(placedb.region_boxes)),
-            dtype=self.data_collections.pos[0].dtype,
-            device=self.data_collections.pos[0].device)
+            [density_weight]*(placedb.targetOverflow.size),
+            dtype=self.data_collections.dtype,
+            device=self.data_collections.device)
         ### Note: even for multi-electric fields, they use the same gamma
         self.gamma = torch.tensor(self.base_gamma(params, placedb)[0],
-                                  dtype=self.data_collections.pos[0].dtype,
-                                  device=self.data_collections.pos[0].device)
-        initOverflow = torch.ones(4, dtype=self.gamma.dtype, device=self.gamma.device)
+                                  dtype=self.data_collections.dtype,
+                                  device=self.data_collections.device)
+        initOverflow = torch.ones(placedb.targetOverflow.size, dtype=self.gamma.dtype, device=self.gamma.device)
         self.update_gamma(0, initOverflow, self.base_gamma(params, placedb))
 
         # compute weighted average wirelength from position
@@ -302,6 +311,9 @@ class PlaceObjFPGA(nn.Module):
             netpin_start=data_collections.flat_net2pin_start_map,
             pin2net_map=data_collections.pin2net_map,
             net_weights=data_collections.net_weights,
+            num_carry_chains=placedb.num_carry_chains,
+            cc_net_weight=placedb.carry_chain_net_weight,
+            dir_net_weight=params.dir_net_weight,
             net_mask=data_collections.net_mask_ignore_large_degrees,
             pin_mask=data_collections.pin_mask_ignore_fixed_macros,
             gamma=self.gamma,
@@ -561,23 +573,25 @@ class PlaceObjFPGA(nn.Module):
         self.WLGammaB = []
         self.WLGammaWt = []
 
-        for i in range(len(placedb.region_boxes)):
-            self.baseWLGamma.append(0.5 * params.gamma * (placedb.bin_size_x + placedb.bin_size_y))
-            # Compute coeffcient for wirelength gamma updating
-            # The basic idea is that we want to achieve
-            #   gamma =  10 * base_gamma, if overflow = 1.0
-            #   gamma = 0.1 * base_gamma, if overflow = target_overflow
-            # We use function f(ovfl) = 10^(k * ovfl + b) to achieve the two above two points
-            # So we want
-            #   k + b = 1
-            #   k * target_overflow + b = -1
-            # Then we have
-            #   k = 2.0 / (1 - target_overflow)
-            #   b = 1.0 - k
-            self.WLGammaK.append(2.0/(1.0 - placedb.targetOverflow[i]))
-            self.WLGammaB.append(1.0 - self.WLGammaK[i])
-            # Compare the wirelength gamma weight to balance gamma updating for different area types
-            self.WLGammaWt.append(self.precondWL[:placedb.num_physical_nodes][self.data_collections.node2fence_region_map == i].sum())
+        for idx in range(placedb.regions):
+            i = placedb.rsrc2compId_map[idx]
+            if i != -1:
+                self.baseWLGamma.append(0.5 * params.gamma * (placedb.bin_size_x + placedb.bin_size_y))
+                # Compute coeffcient for wirelength gamma updating
+                # The basic idea is that we want to achieve
+                #   gamma =  10 * base_gamma, if overflow = 1.0
+                #   gamma = 0.1 * base_gamma, if overflow = target_overflow
+                # We use function f(ovfl) = 10^(k * ovfl + b) to achieve the two above two points
+                # So we want
+                #   k + b = 1
+                #   k * target_overflow + b = -1
+                # Then we have
+                #   k = 2.0 / (1 - target_overflow)
+                #   b = 1.0 - k
+                self.WLGammaK.append(2.0/(1.0 - placedb.targetOverflow[i]))
+                self.WLGammaB.append(1.0 - self.WLGammaK[i])
+                # Compare the wirelength gamma weight to balance gamma updating for different area types
+                self.WLGammaWt.append(self.precondWL[:placedb.num_physical_nodes][self.data_collections.node2fence_region_map == idx].sum())
 
         return self.baseWLGamma
 
@@ -592,10 +606,12 @@ class PlaceObjFPGA(nn.Module):
         # Compute the gamma for each area type and use the pin count-averaged value as the final gamma
         totalGamma = 0.0
         totalWt = 0.0
-        for i in range(len(self.placedb.region_boxes)):
-            gma = base_gamma[i] * pow(10.0, overflow[i] * self.WLGammaK[i] + self.WLGammaB[i])
-            totalGamma += gma * self.WLGammaWt[i]
-            totalWt += self.WLGammaWt[i]
+        for idx in range(self.placedb.regions):
+            i = self.placedb.rsrc2compId_map[idx]
+            if i != -1:
+                gma = base_gamma[i] * pow(10.0, overflow[i] * self.WLGammaK[i] + self.WLGammaB[i])
+                totalGamma += gma * self.WLGammaWt[i]
+                totalWt += self.WLGammaWt[i]
 
         self.gamma.data.fill_(totalGamma / totalWt)
         return True
@@ -608,7 +624,7 @@ class PlaceObjFPGA(nn.Module):
         @param data_collections a collection of data and variables required for constructing ops
         """
         node_size = torch.cat([data_collections.node_size_x, data_collections.node_size_y],
-            dim=0).to(data_collections.pos[0].device)
+            dim=0).to(data_collections.device)
 
         def noise_op(pos, noise_ratio):
             with torch.no_grad():
@@ -721,6 +737,7 @@ class PlaceObjFPGA(nn.Module):
         """
         bins_x = math.ceil((placedb.xh - placedb.xl)/placedb.instDemStddevX) 
         bins_y = math.ceil((placedb.yh - placedb.yl)/placedb.instDemStddevY) 
+
         return clustering_compatibility.LUTCompatibility(
             lut_indices=data_collections.lut_indices,
             lut_type=data_collections.cluster_lut_type,
@@ -728,14 +745,8 @@ class PlaceObjFPGA(nn.Module):
             node_size_y=data_collections.node_size_y,
             num_bins_x=bins_x,
             num_bins_y=bins_y,
-            num_bins_l=placedb.cluster_lut_type.max()+1,
-            xl=placedb.xl,
-            yl=placedb.yl,
-            xh=placedb.xh,
-            yh=placedb.yh,
-            inst_stddev_x=placedb.instDemStddevX,
-            inst_stddev_y=placedb.instDemStddevY,
-            inst_stddev_trunc=placedb.instDemStddevTrunc,
+            num_bins_l=placedb.lutTypeInSliceUnit,
+            placedb=placedb,
             deterministic_flag=params.deterministic_flag,
             num_threads=params.num_threads)
 
@@ -758,13 +769,7 @@ class PlaceObjFPGA(nn.Module):
             num_bins_y=bins_y,
             num_bins_ck=placedb.ctrlSets[:,1].max()+1,
             num_bins_ce=placedb.ctrlSets[:,2].max()+1,
-            xl=placedb.xl,
-            yl=placedb.yl,
-            xh=placedb.xh,
-            yh=placedb.yh,
-            inst_stddev_x=placedb.instDemStddevX,
-            inst_stddev_y=placedb.instDemStddevY,
-            inst_stddev_trunc=placedb.instDemStddevTrunc,
+            placedb=placedb,
             deterministic_flag=params.deterministic_flag,
             num_threads=params.num_threads)
 
@@ -776,13 +781,29 @@ class PlaceObjFPGA(nn.Module):
         total_movable_area = (
             data_collections.node_size_x[:placedb.num_movable_nodes] *
             data_collections.node_size_y[:placedb.num_movable_nodes] * 
-            data_collections.flop_lut_mask[:placedb.num_movable_nodes]).sum()
-        flop_lut_fillers = placedb.filler_start_map[2]
-        total_filler_area = (
-            data_collections.node_size_x[placedb.num_physical_nodes:placedb.num_physical_nodes + flop_lut_fillers] *
-            data_collections.node_size_y[placedb.num_physical_nodes:placedb.num_physical_nodes + flop_lut_fillers]).sum()
-        total_place_area = (total_movable_area + total_filler_area)
+            data_collections.flop_lut_mask[:placedb.num_movable_nodes]).sum().item()
+        lut_compId = placedb.rsrc2compId_map[placedb.rLUTIdx]
+        lut_filler_start = placedb.filler_start_map[lut_compId]
+        lut_filler_end = placedb.filler_start_map[lut_compId+1]
+        lut_fillers = lut_filler_start + lut_filler_end
+        lut_filler_area = (
+            data_collections.node_size_x[placedb.num_physical_nodes + lut_filler_start:placedb.num_physical_nodes + lut_filler_end] *
+            data_collections.node_size_y[placedb.num_physical_nodes + lut_filler_start:placedb.num_physical_nodes + lut_filler_end]).sum().item()
+
+        flop_compId = placedb.rsrc2compId_map[placedb.rFFIdx]
+        flop_filler_start = placedb.filler_start_map[flop_compId]
+        flop_filler_end = placedb.filler_start_map[flop_compId+1]
+        flop_fillers = flop_filler_start + flop_filler_end
+        flop_filler_area = (
+            data_collections.node_size_x[placedb.num_physical_nodes + flop_filler_start:placedb.num_physical_nodes + flop_filler_end] *
+            data_collections.node_size_y[placedb.num_physical_nodes + flop_filler_start:placedb.num_physical_nodes + flop_filler_end]).sum().item()
+
+        flop_lut_fillers = lut_fillers + flop_fillers
+        total_filler_area = lut_filler_area + flop_filler_area
+        total_place_area = total_movable_area + total_filler_area
+
         adjust_node_area_op = adjust_node_area.AdjustNodeArea(
+            placedb=placedb,
             flat_node2pin_map=data_collections.flat_node2pin_map,
             flat_node2pin_start_map=data_collections.flat_node2pin_start_map,
             pin_weights=data_collections.pin_weights,
@@ -790,17 +811,6 @@ class PlaceObjFPGA(nn.Module):
             flop_lut_mask=data_collections.flop_lut_mask,
             flop_mask=data_collections.flop_mask,
             lut_mask=data_collections.lut_mask,
-            filler_start_map=placedb.filler_start_map,
-            xl=placedb.routing_grid_xl,
-            yl=placedb.routing_grid_yl,
-            xh=placedb.routing_grid_xh,
-            yh=placedb.routing_grid_yh,
-            num_movable_nodes=placedb.num_movable_nodes,
-            num_filler_nodes=placedb.num_filler_nodes,
-            route_num_bins_x=placedb.num_routing_grids_x,
-            route_num_bins_y=placedb.num_routing_grids_y,
-            pin_num_bins_x=placedb.num_routing_grids_x,
-            pin_num_bins_y=placedb.num_routing_grids_y,
             total_place_area=total_place_area,
             total_whitespace_area=total_place_area - total_movable_area,
             max_route_opt_adjust_rate=params.max_route_opt_adjust_rate,
@@ -823,20 +833,21 @@ class PlaceObjFPGA(nn.Module):
     def build_multi_fence_region_density_op(self):
         # region 0, ..., region n, non_fence_region
         self.op_collections.fence_region_density_ops = []
-        #self.streams = [torch.cuda.Stream() for i in range(2)]
 
-        for i, fence_region_map in enumerate(self.fixedDemMaps):
-            #with torch.cuda.stream(self.streams[i%2]):
-            self.op_collections.fence_region_density_ops.append(self.build_electric_potential(
-                        self.params,
-                        self.placedb,
-                        self.data_collections,
-                        self.num_bins_x,
-                        self.num_bins_y,
-                        name=self.name,
-                        region_id=i,
-                        fence_regions=fence_region_map)
-            )
+        for idx in range(self.placedb.rsrc2compId_map.size):
+            i = self.placedb.rsrc2compId_map[idx]
+            if i != -1:
+                #Create for all resource types but do not update fixed types 
+                self.op_collections.fence_region_density_ops.append(self.build_electric_potential(
+                            self.params,
+                            self.placedb,
+                            self.data_collections,
+                            self.num_bins_x,
+                            self.num_bins_y,
+                            name=self.name,
+                            region_id=idx,
+                            fence_regions=self.fixedDemMaps[i])
+                )
 
         def merged_density_op(pos):
             #### stop mask is to stop forward of density

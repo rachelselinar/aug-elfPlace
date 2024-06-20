@@ -102,7 +102,7 @@ at::Tensor flop_compatibility(
     CHECK_CONTIGUOUS(node_size_y);
 
     int num_nodes = pos.numel() / 2;
-    double half_slice = slice_capacity/2.0;
+    double half_slice = slice_capacity / 2.0;
 
     // Call the cuda kernel launcher
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "fillDemandMapFFCuda", [&] {

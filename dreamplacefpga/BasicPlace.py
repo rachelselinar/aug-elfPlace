@@ -47,6 +47,7 @@ class PlaceDataCollectionFPGA(object):
         @param device cpu or cuda 
         """
         self.device = device
+        self.dtype = datatypes[params.dtype]
         torch.set_num_threads(params.num_threads)
         # position should be parameter
         self.pos = pos
@@ -88,20 +89,31 @@ class PlaceDataCollectionFPGA(object):
             self.node2pincount_map = torch.from_numpy(placedb.node2pincount_map).to(device)
             self.net2pincount_map = torch.from_numpy(placedb.net2pincount_map).to(device)
 
-            self.dspSiteXYs = torch.from_numpy(placedb.dspSiteXYs).to(dtype=datatypes[params.dtype],device=device)
-            self.ramSiteXYs = torch.from_numpy(placedb.ramSiteXYs).to(dtype=datatypes[params.dtype],device=device)
-
             # number of pins for each cell
             self.pin_weights = (self.flat_node2pin_start_map[1:] -
                                 self.flat_node2pin_start_map[:-1]).to(
-                                    self.node_size_x.dtype)
+                                    self.dtype)
             ## Resource type masks
             self.flop_mask = torch.from_numpy(placedb.flop_mask).to(device)
             self.lut_mask = torch.from_numpy(placedb.lut_mask).to(device)
-            self.ram_mask = torch.from_numpy(placedb.ram_mask).to(device)
-            self.dsp_mask = torch.from_numpy(placedb.dsp_mask).to(device)
+            if placedb.sDSPIdx != -1:
+                self.dsp_mask = torch.from_numpy(placedb.dsp_mask).to(device)
+            if placedb.sBRAMIdx != -1 or placedb.sM9KIdx != -1:
+                self.ram0_mask = torch.from_numpy(placedb.ram0_mask).to(device)
+            if placedb.sM144KIdx != -1:
+                self.ram1_mask = torch.from_numpy(placedb.ram1_mask).to(device)
             self.flop_lut_mask = self.flop_mask | self.lut_mask
-            self.dsp_ram_mask = self.dsp_mask | self.ram_mask
+
+            if placedb.sBRAMIdx == -1:
+                self.dsp_ram_mask = self.dsp_mask | self.ram0_mask | self.ram1_mask
+            else:
+                self.dsp_ram_mask = self.dsp_mask | self.ram0_mask
+
+            self.io_mask = torch.from_numpy(placedb.io_mask).to(device)
+            self.fixed_rsrcIds = torch.from_numpy(placedb.fixed_rsrcIds).to(dtype=torch.int32,device=device)
+
+            #TODO - For Stratix-IV: mlab is treated as lut type as sites for MLAB/LAB are not distinguished
+            self.is_mlab_node = torch.from_numpy(placedb.is_mlab_node).to(device)
 
             #LUT type list
             self.lut_type = torch.from_numpy(placedb.lut_type).to(dtype=torch.int32,device=device)
@@ -114,13 +126,13 @@ class PlaceDataCollectionFPGA(object):
             self.flop2ctrlSetId_map = torch.from_numpy(placedb.flop2ctrlSetId_map).to(dtype=torch.int32,device=device)
             #Spiral accessor for legalization
             self.spiral_accessor = torch.from_numpy(placedb.spiral_accessor).to(dtype=torch.int32,device=device)
-
             #Resource type indexing
             self.flop_indices = torch.from_numpy(placedb.flop_indices).to(dtype=torch.int32,device=device)
             self.lut_indices = torch.nonzero(self.lut_mask, as_tuple=True)[0].to(dtype=torch.int32)
             self.flop_lut_indices = torch.nonzero(self.flop_lut_mask, as_tuple=True)[0].to(dtype=torch.int32)
+            self.dsp_ram_indices = torch.nonzero(self.dsp_ram_mask, as_tuple=True)[0].to(dtype=torch.int32)
             self.pin_weights[self.flop_mask] = params.ffPinWeight
-            self.unit_pin_capacity = torch.empty(1, dtype=self.pos[0].dtype, device=device)
+            self.unit_pin_capacity = torch.empty(1, dtype=self.dtype, device=device)
             self.unit_pin_capacity.data.fill_(params.unit_pin_capacity)
 
             # routing information
@@ -151,8 +163,7 @@ class PlaceDataCollectionFPGA(object):
                 placedb.flat_region_boxes).to(device)
             self.flat_region_boxes_start = torch.from_numpy(
                 placedb.flat_region_boxes_start).to(device)
-            self.node2fence_region_map = torch.from_numpy(
-                placedb.node2fence_region_map).to(device)
+            self.node2fence_region_map = torch.from_numpy(placedb.node2fence_region_map).to(device)
 
             self.num_nodes = torch.tensor(placedb.num_nodes, dtype=torch.int32, device=device)
             self.num_movable_nodes = torch.tensor(placedb.num_movable_nodes, dtype=torch.int32, device=device)
@@ -174,7 +185,7 @@ class PlaceDataCollectionFPGA(object):
             self.net_mask_ignore_large_degrees = torch.from_numpy(net_mask).to(device)  # nets with large degrees are ignored
 
             # For WL computation
-            self.net_bounding_box_min = torch.zeros(placedb.num_nets * 2, dtype=datatypes[params.dtype], device=self.device)
+            self.net_bounding_box_min = torch.zeros(placedb.num_nets * 2, dtype=self.dtype, device=self.device)
             self.net_bounding_box_max = torch.zeros_like(self.net_bounding_box_min)
 
             # avoid computing gradient for fixed macros
@@ -185,6 +196,38 @@ class PlaceDataCollectionFPGA(object):
             movable_size_x = self.node_size_x[:placedb.num_movable_nodes]
             _, self.sorted_node_map = torch.sort(movable_size_x)
             self.sorted_node_map = self.sorted_node_map.to(torch.int32)
+
+            self.targetOverflow = torch.from_numpy(placedb.targetOverflow).to(dtype=self.dtype, device=device)
+            self.node_area_adjust_overflow = torch.from_numpy(placedb.node_area_adjust_overflow).to(dtype=self.dtype, device=device)
+
+            #Filler start/end for FF and LUT for resource area update
+            self.ff_filler_start = placedb.filler_start_map[placedb.rsrc2compId_map[placedb.rFFIdx]]
+            self.ff_filler_end = placedb.filler_start_map[placedb.rsrc2compId_map[placedb.rFFIdx]+1]
+            self.lut_filler_start = placedb.filler_start_map[placedb.rsrc2compId_map[placedb.rLUTIdx]]
+            self.lut_filler_end = placedb.filler_start_map[placedb.rsrc2compId_map[placedb.rLUTIdx]+1]
+
+            #Carry chain nodes as single entity
+            if placedb.num_ccNodes > 0:
+                self.org_node_x = torch.from_numpy(placedb.org_node_x).to(device)
+                self.org_node_y = torch.from_numpy(placedb.org_node_y).to(device)
+                self.org_node_z = torch.from_numpy(placedb.org_node_z.astype(np.int32)).to(device)
+                org_flop_lut_mask = torch.from_numpy(placedb.org_lut_flop_mask).to(device)
+                self.org_flop_lut_indices = torch.nonzero(org_flop_lut_mask, as_tuple=True)[0].to(dtype=torch.int32)
+                self.org_is_mlab_node = torch.from_numpy(placedb.org_is_mlab_node).to(device)
+                self.org_flop2ctrlSetId_map = torch.from_numpy(placedb.org_flop2ctrlSetId_map).to(dtype=torch.int32,device=device)
+                self.org_flop_ctrlSets = torch.from_numpy(placedb.flat_org_ctrlSets).to(dtype=torch.int32,device=device)
+                self.org_pin2node_map = torch.from_numpy(placedb.org_pin2node_map).to(device)
+                self.org_flat_node2pin_map = torch.from_numpy(placedb.org_flat_node2pin_map).to(device)
+                self.org_flat_node2pin_start_map = torch.from_numpy(placedb.org_flat_node2pin_start_map).to(device)
+                self.org_node2outpinIdx_map = torch.from_numpy(placedb.org_node2outpinIdx_map).to(device)
+                self.org_node2pincount_map = torch.from_numpy(placedb.org_node2pincount_map).to(device)
+                self.org_node2fence_region_map = torch.from_numpy(placedb.org_node2fence_region_map).to(device)
+                self.org_lut_type = torch.from_numpy(placedb.org_lut_type).to(dtype=torch.int32,device=device)
+                self.org_lg_pin_offset_x = torch.from_numpy(placedb.org_lg_pin_offset_x).to(device)
+                self.org_lg_pin_offset_y = torch.from_numpy(placedb.org_lg_pin_offset_y).to(device)
+                self.org_node_size_x = torch.from_numpy(placedb.org_node_size_x).to(device)
+                self.org_node_size_y = torch.from_numpy(placedb.org_node_size_y).to(device)
+                self.org_node_areas = self.org_node_size_x * self.org_node_size_y
 
 class PlaceOpCollectionFPGA(object):
     """
@@ -203,7 +246,7 @@ class PlaceOpCollectionFPGA(object):
         self.update_gamma_op = None
         self.density_op = None
         self.update_density_weight_op = None
-        self.precondition_op = None
+        self.lg_precondition_op = None
         self.noise_op = None
         self.draw_place_op = None
         self.route_utilization_map_op = None
@@ -228,6 +271,115 @@ class BasicPlaceFPGA(nn.Module):
         torch.manual_seed(params.random_seed)
         super(BasicPlaceFPGA, self).__init__()
 
+        #Assign carry chain net weighting if specified
+        if params.cc_net_weight:
+            placedb.carry_chain_net_weight = params.cc_net_weight
+        else:
+            placedb.carry_chain_net_weight = 1.0
+
+        ###################################################
+        ##IDENTIFY IF THERE ARE CARRY CHAINS IN THE DESIGN
+        ###################################################
+        if placedb.num_ccNodes == 0:
+            #nodes_with_carry_chain = np.zeros(placedb.num_physical_nodes, dtype=np.int32)
+            placedb.carry_chain_driver = np.ones(placedb.num_physical_nodes, dtype=np.int32)
+            placedb.carry_chain_driver *= -1
+            placedb.carry_chain_sink = np.ones_like(placedb.carry_chain_driver)
+            placedb.carry_chain_sink *= -1
+            placedb.carry_chain_nets = np.ones(placedb.num_nets, dtype=np.int32)
+            placedb.carry_chain_nets *= -1
+
+            lut_indices = np.nonzero(placedb.lut_mask)[0].astype(np.int32)
+            #Check for carry chains if cout-cin connections exist
+            if 30 in placedb.pin_typeIds and 31 in placedb.pin_typeIds:
+                #Obtain carry chain information
+                for instId in lut_indices:
+                    pinIdBeg = placedb.flat_node2pin_start_map[instId]
+                    pinIdEnd = placedb.flat_node2pin_start_map[instId+1]
+                    for pinId in range(pinIdBeg, pinIdEnd, 1):
+                        outPinId = placedb.flat_node2pin_map[pinId]
+                        if placedb.pin_typeIds[outPinId] != 30: continue
+                        outNetId = placedb.pin2net_map[outPinId]
+                        pinIdxBeg = placedb.flat_net2pin_start_map[outNetId]
+                        pinIdxEnd = placedb.flat_net2pin_start_map[outNetId+1]
+                        for pinId in range(pinIdxBeg, pinIdxEnd, 1):
+                            pinIdx = placedb.flat_net2pin_map[pinId]
+                            nodeIdx = placedb.pin2node_map[pinIdx]
+                            if placedb.pin_typeIds[pinIdx] == 31 and nodeIdx != instId:
+                                placedb.net_weights[outNetId] = placedb.carry_chain_net_weight
+                                placedb.carry_chain_nets[outNetId] = placedb.carry_chain_net_weight
+                                placedb.carry_chain_sink[instId] = nodeIdx
+                                placedb.carry_chain_driver[nodeIdx] = instId
+            ccd = placedb.carry_chain_driver > -1
+            ccs = placedb.carry_chain_sink > -1
+            #placedb.nodes_with_carry_chain=np.logical_or(ccd, ccs)
+            #placedb.nodes_cc_start=np.logical_and(~ccd, ccs)
+            #placedb.non_root_cc_nodes=np.logical_and(placedb.nodes_with_carry_chain,~placedb.nodes_cc_start)
+            #carry_chain_nodeIds = np.where(np.logical_or(ccd, ccs))[0].astype(np.int32)
+            #Instance ids that are the start of carry chains
+            placedb.carry_chain_start = np.where(np.logical_and(~ccd, ccs))[0].astype(np.int32)
+            placedb.num_carry_chains = placedb.carry_chain_start.shape[0]
+
+            ##placedb.node_area = placedb.node_size_x * placedb.node_size_y
+            node_cc_id=np.ones(placedb.num_physical_nodes, dtype=np.int32)
+            node_cc_id*=-1
+            node_cc_id[placedb.carry_chain_start]=np.arange(placedb.num_carry_chains)
+
+            #### PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+            ####Get number of nodes in each carry chain
+            #cc_element_count=np.zeros(placedb.num_carry_chains, dtype=np.int32)
+            #for el in placedb.carry_chain_start:
+            #    ccId=node_cc_id[el]
+            #    #Get node info
+            #    cc_element_count[ccId]=cc_element_count[ccId]+1
+            #    sink_node=placedb.carry_chain_sink[el]
+            #    while sink_node > -1:
+            #        #Get node info
+            #        cc_element_count[ccId]=cc_element_count[ccId]+1
+            #        #Next sink
+            #        sink_node=placedb.carry_chain_sink[sink_node]
+            #### END PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+
+            flat_cc2node_map = []
+            flat_cc2node_start_map = []
+
+            flat_cc2node_start_map.append(0)
+            for el in placedb.carry_chain_start:
+                ccId=node_cc_id[el]
+                #### PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+                #header="carry " + placedb.node_names[el] + " " + str(cc_element_count[ccId])
+                #midportion="\t" + placedb.node_names[el] + "\n"
+                #### END PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+                flat_cc2node_map.append(el)
+                sink_node=placedb.carry_chain_sink[el]
+                while sink_node > -1:
+                    flat_cc2node_map.append(sink_node)
+                    #### PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+                    #midportion=midportion+"\t" + placedb.node_names[sink_node] + "\n"
+                    #### END PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+                    sink_node=placedb.carry_chain_sink[sink_node]
+                flat_cc2node_start_map.append(len(flat_cc2node_map))
+                ### PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+                #footer="endcarry"
+                ##TODO - Uncomment below 3 lines to generate carry chain information
+                #print(header)
+                #print(midportion)
+                #print(footer)
+                ### END PRINT CARRY CHAINS INFO AS DESIGN.CC FILE
+            placedb.flat_cc2node_map = np.array(flat_cc2node_map, dtype=np.int32)
+            placedb.flat_cc2node_start_map = np.array(flat_cc2node_start_map, dtype=np.int32)
+
+            if placedb.num_carry_chains > 0:
+                logging.info("There are %d carry chains across %d nodes and %d nets" % 
+                            (placedb.num_carry_chains, placedb.flat_cc2node_map.shape[0], (placedb.carry_chain_nets > -1).sum()))
+        else:
+            placedb.num_carry_chains = placedb.num_ccNodes
+        ###################################################
+        ##END OF CARRY CHAINS IDENTIFICATION
+        ###################################################
+
+
+        ## Random Initial Placement
         self.init_pos = np.zeros(placedb.num_nodes * 2, dtype=placedb.dtype)
 
         ##Settings to ensure reproduciblity
@@ -243,7 +395,6 @@ class BasicPlaceFPGA(nn.Module):
         initLocY = 0
 
         if placedb.num_terminals > 0:
-            numPins = 0
             ##Use the average fixed pin location (weighted by pin count) as the initial location
             for nodeID in range(placedb.num_movable_nodes,placedb.num_physical_nodes):
                 for pID in placedb.node2pin_map[nodeID]:
@@ -279,16 +430,21 @@ class BasicPlaceFPGA(nn.Module):
         if placedb.num_filler_nodes:  # uniformly distribute filler cells in the layout
             ### uniformly spread fillers in fence region
             ### for cells in the fence region
-            for i, region in enumerate(placedb.region_boxes):
-                if i < 4:
+            for idx in range(placedb.regions):
+                i = placedb.rsrc2compId_map[idx]
+                if i != -1:
+                    region = placedb.region_boxes[i]
                     #Construct Nx4 np array for region using placedb.flat_region_boxes
                     filler_beg, filler_end = placedb.filler_start_map[i:i+2]
                     if filler_end-filler_beg > 0:
+                        num_region_fillers = filler_end-filler_beg
                         subregion_areas = (region[:,2]-region[:,0])*(region[:,3]-region[:,1])
                         total_area = np.sum(subregion_areas)
                         subregion_area_ratio = subregion_areas / total_area
-                        subregion_num_filler = np.round((filler_end - filler_beg) * subregion_area_ratio)
-                        subregion_num_filler[-1] = (filler_end - filler_beg) - np.sum(subregion_num_filler[:-1])
+                        subregion_num_filler = np.floor((filler_end - filler_beg) * subregion_area_ratio)
+                        rem_fillers = num_region_fillers - int(subregion_num_filler.sum())
+                        subregion_num_filler[:rem_fillers] += 1
+                        #subregion_num_filler[-1] = (filler_end - filler_beg) - np.sum(subregion_num_filler[:-1])
                         subregion_num_filler_start_map = np.concatenate([np.zeros([1]),np.cumsum(subregion_num_filler)],0).astype(np.int32)
                         for j, subregion in enumerate(region):
                             sub_filler_beg, sub_filler_end = subregion_num_filler_start_map[j:j+2]
@@ -302,7 +458,7 @@ class BasicPlaceFPGA(nn.Module):
                                     high=subregion[3] -
                                     placedb.filler_size_y_fence_region[i],
                                     size=sub_filler_end-sub_filler_beg)
-                #Skip for IOs - regions[4]
+                #Skip for IOs
                 else:
                     continue
 
@@ -316,14 +472,13 @@ class BasicPlaceFPGA(nn.Module):
         self.pos = nn.ParameterList(
             [nn.Parameter(torch.from_numpy(self.init_pos).to(self.device))])
         #logging.info("build pos takes %.2f seconds" % (time.time() - tbp))
-        # shared data on device for building ops
-        # I do not want to construct the data from placedb again and again for each op
+        # shared data on device for building ops to avoid constructing data from placedb again and again
         #tt = time.time()
         self.data_collections = PlaceDataCollectionFPGA(self.pos, params, placedb, self.device)
         #logging.info("build data_collections takes %.2f seconds" %
         #              (time.time() - tt))
 
-        # similarly I wrap all ops
+        # All ops are wrapped
         #tt = time.time()
         self.op_collections = PlaceOpCollectionFPGA()
         #logging.info("build op_collections takes %.2f seconds" %
@@ -340,21 +495,18 @@ class BasicPlaceFPGA(nn.Module):
         self.op_collections.hpwl_op = self.build_hpwl(params, placedb, self.data_collections, self.op_collections.pin_pos_op, self.device)
         # WL preconditioner
         self.op_collections.precondwl_op = self.build_precondwl(params, placedb, self.data_collections, self.device)
+        self.op_collections.lg_precondition_op = self.build_LGprecondwl(params, placedb, self.data_collections, self.device)
         # Sorting node2pin map
         self.op_collections.sort_node2pin_op = self.build_sortNode2Pin(params, placedb, self.data_collections, self.device)
         # rectilinear minimum steiner tree wirelength from flute
         # can only be called once
         self.op_collections.density_overflow_op = self.build_electric_overflow(params, placedb, self.data_collections, self.device)
 
-        #Legalization
+        ##Legalization
         self.op_collections.lut_ff_legalization_op = self.build_lut_ff_legalization(params, placedb, self.data_collections, self.device)
- 
+
         # draw placement
         self.op_collections.draw_place_op = self.build_draw_placement(params, placedb)
-
-        # flag for rmst_wl_op
-        # can only read once
-        self.read_lut_flag = True
 
         #logging.info("build BasicPlace ops takes %.2f seconds" %
         #              (time.time() - tt))
@@ -426,12 +578,14 @@ class BasicPlaceFPGA(nn.Module):
         @param device cpu or cuda
         """
         wirelength_for_pin_op = hpwl.HPWL(
-            xWeight=placedb.xWirelenWt,
-            yWeight=placedb.yWirelenWt,
+            placedb=placedb,
             flat_netpin=data_collections.flat_net2pin_map,
             netpin_start=data_collections.flat_net2pin_start_map,
             pin2net_map=data_collections.pin2net_map,
             net_weights=data_collections.net_weights,
+            num_carry_chains=placedb.num_carry_chains,
+            cc_net_weight=placedb.carry_chain_net_weight,
+            dir_net_weight=params.dir_net_weight,
             #net_mask=data_collections.net_mask_all,
             net_mask=data_collections.net_mask_ignore_large_degrees,
             net_bounding_box_min=data_collections.net_bounding_box_min,
@@ -454,17 +608,10 @@ class BasicPlaceFPGA(nn.Module):
         @param device cpu or cuda
         """
         return demandMap.DemandMap(
+            placedb=placedb,
             site_type_map=data_collections.site_type_map,
-            num_bins_x=placedb.num_bins_x,
-            num_bins_y=placedb.num_bins_y,
-            width=placedb.width,
-            height=placedb.height,
-            node_size_x=data_collections.resource_size_x,
-            node_size_y=data_collections.resource_size_y,
-            xh=placedb.xh,
-            xl=placedb.xl,
-            yh=placedb.yh,
-            yl=placedb.yl,
+            site_size_x=data_collections.resource_size_x,
+            site_size_y=data_collections.resource_size_y,
             deterministic_flag=params.deterministic_flag,
             device=device,
             num_threads=params.num_threads)
@@ -488,6 +635,26 @@ class BasicPlaceFPGA(nn.Module):
             device=device,
             num_threads=params.num_threads)
 
+    def build_LGprecondwl(self, params, placedb, data_collections, device):
+        """
+        @brief compute wirelength precondtioner
+        @param params parameters
+        @param placedb placement database
+        @param data_collections a collection of all data and variables required for constructing the ops
+        @param device cpu or cuda
+        """
+        if placedb.num_ccNodes > 0:
+            return precondWL.PrecondWL(
+                flat_node2pin_start=data_collections.org_flat_node2pin_start_map,
+                flat_node2pin=data_collections.org_flat_node2pin_map,
+                pin2net_map=data_collections.pin2net_map,
+                flat_net2pin=data_collections.flat_net2pin_start_map,
+                net_weights=data_collections.net_weights,
+                num_nodes=placedb.org_num_physical_nodes + placedb.num_filler_nodes,
+                num_movable_nodes=placedb.org_num_physical_nodes,#Compute for fixed nodes as well for Legalization
+                device=device,
+                num_threads=params.num_threads)
+
     def build_sortNode2Pin(self, params, placedb, data_collections, device):
         """
         @brief sort instance node2pin mapping
@@ -496,12 +663,21 @@ class BasicPlaceFPGA(nn.Module):
         @param data_collections a collection of all data and variables required for constructing the ops
         @param device cpu or cuda
         """
-        return sortNode2Pin.SortNode2Pin(
-            flat_node2pin_start=data_collections.flat_node2pin_start_map,
-            flat_node2pin=data_collections.flat_node2pin_map,
-            num_nodes=placedb.num_physical_nodes,
-            device=device,
-            num_threads=params.num_threads)
+        #Only used for LG
+        if placedb.num_ccNodes == 0:
+            return sortNode2Pin.SortNode2Pin(
+                flat_node2pin_start=data_collections.flat_node2pin_start_map,
+                flat_node2pin=data_collections.flat_node2pin_map,
+                num_nodes=placedb.num_physical_nodes,
+                device=device,
+                num_threads=params.num_threads)
+        else:
+            return sortNode2Pin.SortNode2Pin(
+                flat_node2pin_start=data_collections.org_flat_node2pin_start_map,
+                flat_node2pin=data_collections.org_flat_node2pin_map,
+                num_nodes=placedb.org_num_physical_nodes,
+                device=device,
+                num_threads=params.num_threads)
 
     def build_electric_overflow(self, params, placedb, data_collections, device):
         """
@@ -536,19 +712,19 @@ class BasicPlaceFPGA(nn.Module):
         @param device cpu or cuda
         """
         # legalize LUT/FF
-        #Avg areas
-        avgLUTArea = data_collections.node_areas[:placedb.num_physical_nodes][data_collections.node2fence_region_map == 0].sum()
-        avgLUTArea /= placedb.node_count[0]
-        avgFFArea = data_collections.node_areas[:placedb.num_physical_nodes][data_collections.node2fence_region_map == 1].sum()
-        avgFFArea /= placedb.node_count[1]
-        #Inst Areas
-        inst_areas = data_collections.node_areas[:placedb.num_physical_nodes].detach().clone()
-        inst_areas[data_collections.node2fence_region_map > 1] = 0.0 #Area of non CLB nodes set to 0.0
-        inst_areas[data_collections.node2fence_region_map == 0] /= avgLUTArea
-        inst_areas[data_collections.node2fence_region_map == 1] /= avgFFArea
+        ###Avg areas
+        ##avgLUTArea = data_collections.node_areas[:placedb.num_physical_nodes][placedb.lut_mask].sum()
+        ##avgLUTArea /= placedb.node_count[placedb.rLUTIdx]
+        ##avgFFArea = data_collections.node_areas[:placedb.num_physical_nodes][placedb.flop_mask].sum()
+        ##avgFFArea /= placedb.node_count[placedb.rFFIdx]
+        ###Inst Areas
+        ##inst_areas = data_collections.node_areas[:placedb.num_physical_nodes].detach().clone()
+        ##inst_areas[~placedb.lut_flop_mask] = 0.0 #Area of non SLICE nodes set to 0.0
+        ##inst_areas[placedb.lut_mask] /= avgLUTArea
+        ##inst_areas[placedb.flop_mask] /= avgFFArea
         #Site types
         site_types = data_collections.site_type_map.detach().clone()
-        site_types[site_types > 1] = 0 #Set non CLB to 0
+        site_types[site_types != placedb.sSLICEIdx] = 0 #Set non SLICE to 0
 
         if (len(data_collections.net_weights)):
             net_wts = data_collections.net_weights
@@ -556,41 +732,11 @@ class BasicPlaceFPGA(nn.Module):
             net_wts = torch.ones(placedb.num_nets, dtype=self.pos[0].dtype, device=device)
 
         return lut_ff_legalization.LegalizeCLB(
-            lutFlopIndices=data_collections.flop_lut_indices,
-            nodeNames=placedb.node_names,
-            flop2ctrlSet=data_collections.flop2ctrlSetId_map,
-            flop_ctrlSet=data_collections.flop_ctrlSets,
-            pin2node=data_collections.pin2node_map,
-            pin2net=data_collections.pin2net_map,
-            flat_net2pin=data_collections.flat_net2pin_map,
-            flat_net2pin_start=data_collections.flat_net2pin_start_map,
-            flat_node2pin=data_collections.flat_node2pin_map,
-            flat_node2pin_start=data_collections.flat_node2pin_start_map,
-            node2fence=data_collections.node2fence_region_map,
-            pin_types=data_collections.pin_typeIds,
-            lut_type=data_collections.lut_type,
+            data_collections=data_collections,
+            placedb=placedb,
             net_wts=net_wts,
-            avg_lut_area=avgLUTArea,
-            avg_ff_area=avgFFArea,
-            inst_areas=inst_areas,
-            pin_offset_x=data_collections.lg_pin_offset_x,
-            pin_offset_y=data_collections.lg_pin_offset_y,
+            #inst_areas=inst_areas,
             site_types=site_types,
-            site_xy=data_collections.lg_siteXYs,
-            node_size_x=data_collections.node_size_x[:placedb.num_physical_nodes],
-            node_size_y=data_collections.node_size_y[:placedb.num_physical_nodes],
-            node2outpin=data_collections.node2outpinIdx_map[:placedb.num_physical_nodes],
-            net2pincount=data_collections.net2pincount_map,
-            node2pincount=data_collections.node2pincount_map,
-            spiral_accessor=data_collections.spiral_accessor,
-            num_nets=placedb.num_nets,
-            num_movable_nodes=placedb.num_movable_nodes,
-            num_nodes=placedb.num_physical_nodes,
-            num_sites_x=placedb.num_sites_x,
-            num_sites_y=placedb.num_sites_y,
-            xWirelenWt=placedb.xWirelenWt,
-            yWirelenWt=placedb.yWirelenWt,
-            nbrDistEnd=placedb.nbrDistEnd,
             num_threads=params.num_threads,
             device=device)
 

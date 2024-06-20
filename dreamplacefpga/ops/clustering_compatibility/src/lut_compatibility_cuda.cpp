@@ -35,6 +35,7 @@ int fillDemandMapLUTCuda(const T *pos_x,
 // Given a Gaussian demand map, compute demand of each instance type based on local window demand distribution
 template <typename T>
 int computeInstanceAreaLUTCuda(const T *demMap,
+                               const int *lut_fracture,
                                const int num_bins_x, 
                                const int num_bins_y,
                                const int num_bins_l,
@@ -64,6 +65,7 @@ at::Tensor lut_compatibility(
     at::Tensor type,
     at::Tensor node_size_x,
     at::Tensor node_size_y,
+    at::Tensor lut_fracture,
     int num_bins_x,
     int num_bins_y,
     int num_bins_l,
@@ -122,6 +124,7 @@ at::Tensor lut_compatibility(
     DREAMPLACE_DISPATCH_FLOATING_TYPES(pos, "computeInstanceAreaLUTCuda", [&] {
         computeInstanceAreaLUTCuda<scalar_t>(
             DREAMPLACE_TENSOR_DATA_PTR(demMap, scalar_t),
+            DREAMPLACE_TENSOR_DATA_PTR(lut_fracture, int),
             num_bins_x, num_bins_y, num_bins_l,
             stddev_x, stddev_y, ext_bin, bin_area,
             DREAMPLACE_TENSOR_DATA_PTR(areaMap, scalar_t));
