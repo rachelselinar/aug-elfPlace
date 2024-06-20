@@ -29,13 +29,13 @@ The main features of ``aug-elfPlace`` include:
 ``aug-elfPlace`` can integrate with the open-source [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/) CAD tool to further improve the quality of results through annealing as part of the hybrid placement framework. Please refer to our [paper](#publications) for detailed information.
 
 ### <a name="overview"></a> Hybrid Placement Framework
-The hybrid placement framework integrates a flat analytical placer such as ``aug-elfPlace`` with [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s place and route tool using the [VPR legalizer]().
+The hybrid placement framework integrates a flat analytical placer such as ``aug-elfPlace`` with [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s place and route tool using the [VPR legalizer](https://docs.verilogtorouting.org/en/latest/vpr/file_formats/#flat-placement-file-format-flat-place).
 
 <p align="center">
 <img src=/images/aug-elfPlace_VPR_hybrid_placement_framework.png height="500">
 </p>
 
-The [VPR legalizer]() reads in a flat placement solution and constructs a cluster-level netlist for [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s placer. The [VPR legalizer]() also repairs any legality or mode-related errors in the clusters, thus allowing any external flat placer to integrate with  [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s place and route tool.
+The [VPR legalizer](https://docs.verilogtorouting.org/en/latest/vpr/file_formats/#flat-placement-file-format-flat-place) reads in a flat placement solution and constructs a cluster-level netlist for [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s placer. The [VPR legalizer](https://docs.verilogtorouting.org/en/latest/vpr/file_formats/#flat-placement-file-format-flat-place) also repairs any legality or mode-related errors in the clusters, thus allowing any external flat placer to integrate with  [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s place and route tool.
 
 The placement solution from ``aug-elfPlace`` can be routed in [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s router and validated to evaluate overall performance. In addition, [**VPR**](https://docs.verilogtorouting.org/en/latest/vpr/)'s annealing-based placer can further refine the ``aug-elfPlace`` solution to improve the overall quality of results.
 
@@ -207,13 +207,13 @@ python unitest/ops/hpwl_unitest.py
 > Note: If your machine does not have an NVIDIA GPU, set the '***gpu***' flag in the JSON configuration file to '***0***' to run on the CPU.
 
 ### <a name="integrate_vpr"></a>Integration with [VPR](https://docs.verilogtorouting.org/en/latest/vpr/)
-- Generate flat placement solution from ``aug-elfPlace`` in VPR compatible format as a *.pl* file:
+- Generate flat placement solution from ``aug-elfPlace`` in [VPR compatible format](https://docs.verilogtorouting.org/en/latest/vpr/file_formats/#flat-placement-file-format-flat-place) as a *.pl* file:
 ```
 <node_name>  x  y  s  z  <node_type>
 ```
 Where '*s*' refers to subtile location, set to zero '*s=0*' for IO/PLL instances, whereas '*z=0*' for DSP/memory/Slice instances.
 
-- Use [VPR legalizer]() to construct a cluster-level netlist for VPR after fixing any legality or mode-related failures. A '*.net*' clustered netlist and '*.fix_clusters*' placement file is generated from the VPR legalizer's output.
+- Use [VPR legalizer](https://docs.verilogtorouting.org/en/latest/vpr/file_formats/#flat-placement-file-format-flat-place) to construct a cluster-level netlist for VPR after fixing any legality or mode-related failures. A '*.net*' clustered netlist and '*.fix_clusters*' placement file is generated from the VPR legalizer's output.
 
 - To validate the placement solution without refinement in VPR, use the '*.fix_clusters*' file generated as '*.place*' input placement file to VPR. For details, refer to this [comment](https://github.com/verilog-to-routing/vtr-verilog-to-routing/issues/2484#issuecomment-1938993673). VPR router is run on the input placement followed by validation.
 
