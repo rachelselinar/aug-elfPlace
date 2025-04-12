@@ -58,33 +58,57 @@ typedef BookshelfParser::Parser::token_type token_type;
 
  /*** BEGIN EXAMPLE - Change the example lexer rules below ***/
 
-(?i:IO)             {return token::KWD_IO;}
-(?i:END)            {return token::KWD_END;}
-(?i:DSP)            {return token::KWD_DSP;}
-(?i:PIN)            {return token::KWD_PIN;}
-(?i:net)            {return token::KWD_NET;}
-(?i:CELL)           {return token::KWD_CELL;}
-(?i:SITE)           {return token::KWD_SITE;}
-(?i:CTRL)           {return token::KWD_CTRL;}
-(?i:BRAM)           {return token::KWD_BRAM;}
-(?i:Type)           {return token::KWD_TYPE;}
-(?i:CLOCK)          {return token::KWD_CLOCK;}
-(?i:INPUT)          {return token::KWD_INPUT;}
-(?i:FIXED)          {return token::KWD_FIXED;}
-(?i:OUTPUT)         {return token::KWD_OUTPUT;}
-(?i:SLICE)          {return token::KWD_SLICE;}
-(?i:endnet)         {return token::KWD_ENDNET;}
-(?i:SITEMAP)        {return token::KWD_SITEMAP;}
-(?i:RESOURCES)      {return token::KWD_RESOURCES;}
-(?i:CLOCKREGION)    {return token::KWD_CLOCKREGION;}
-(?i:CLOCKREGIONS)   {return token::KWD_CLOCKREGIONS;}
+(?i:X)                  {return token::KWD_X;}
+(?i:Y)                  {return token::KWD_Y;}
+(?i:H)                  {return token::KWD_H;}
+(?i:V)                  {return token::KWD_V;}
+(?i:S)                  {return token::KWD_S;}
+(?i:Z)                  {return token::KWD_Z;}
+(?i:END)                {return token::KWD_END;}
+(?i:PIN)                {return token::KWD_PIN;}
+(?i:net)                {return token::KWD_NET;}
+(?i:CELL)               {return token::KWD_CELL;}
+(?i:SITE)               {return token::KWD_SITE;}
+(?i:carry)              {return token::KWD_CARRY;}
+(?i:MAXSHARED)          {return token::KWD_MAXSHARED;}
+(?i:LUTFRACTURE)        {return token::KWD_LUTFRACTURE;}
+(?i:SITEDIMENSIONS)     {return token::KWD_SITEDIMENSIONS;}
+(?i:SITEPERCOLUMN)      {return token::KWD_SITEPERCOLUMN;}
+(?i:CELLDIMENSIONS)     {return token::KWD_CELLDIMENSIONS;}
+(?i:SLICEUNIT)          {return token::KWD_SLICEUNIT;}
+(?i:FFSLICE)            {return token::KWD_FFSLICE;}
+(?i:FFSLICEUNIT)        {return token::KWD_FFSLICEUNIT;}
+(?i:FFCTRLS)            {return token::KWD_FFCTRLS;}
+(?i:WLWEIGHT)           {return token::KWD_WLWEIGHT;}
+(?i:ROUTECAP)           {return token::KWD_ROUTECAP;}
+(?i:SITEOUT)            {return token::KWD_SITEOUT;}
+(?i:FORMAT)             {return token::KWD_FORMAT;}
+(?i:CTRL)               {return token::KWD_CTRL;}
+(?i:ADD)                {return token::KWD_ADD;}
+(?i:Type)               {return token::KWD_TYPE;}
+(?i:INPUT)              {return token::KWD_INPUT;}
+(?i:FIXED)              {return token::KWD_FIXED;}
+(?i:OUTPUT)             {return token::KWD_OUTPUT;}
+(?i:SLICE)              {return token::KWD_SLICE;}
+(?i:SLICEL)             {return token::KWD_SLICEL;}
+(?i:SLICEM)             {return token::KWD_SLICEM;}
+(?i:LAB)                {return token::KWD_LAB;}
+(?i:endnet)             {return token::KWD_ENDNET;}
+(?i:SITEMAP)            {return token::KWD_SITEMAP;}
+(?i:endcarry)           {return token::KWD_ENDCARRY;}
+(?i:RESOURCES)          {return token::KWD_RESOURCES;}
+(?i:CLOCKREGION)        {return token::KWD_CLOCKREGION;}
+(?i:CLOCKREGIONS)       {return token::KWD_CLOCKREGIONS;}
+(?i:TYPEINSLICEUNIT)    {return token::KWD_TYPEINSLICEUNIT;}
 
 [A-Za-z0-9_]+\.lib           { yylval->stringVal = new std::string(yytext, yyleng); return token::LIB_FILE; }
 [A-Za-z0-9_]+\.scl           { yylval->stringVal = new std::string(yytext, yyleng); return token::SCL_FILE; }
 [A-Za-z0-9_]+\.nodes         { yylval->stringVal = new std::string(yytext, yyleng); return token::NODE_FILE; }
 [A-Za-z0-9_]+\.nets          { yylval->stringVal = new std::string(yytext, yyleng); return token::NET_FILE; }
+[A-Za-z0-9_]+\.cc            { yylval->stringVal = new std::string(yytext, yyleng); return token::CC_FILE; }
 [A-Za-z0-9_]+\.pl            { yylval->stringVal = new std::string(yytext, yyleng); return token::PL_FILE; }
 [A-Za-z0-9_]+\.wts           { yylval->stringVal = new std::string(yytext, yyleng); return token::WT_FILE; }
+[A-Za-z0-9_]+\.lc            { yylval->stringVal = new std::string(yytext, yyleng); return token::LC_FILE; }
 
 
 [\+\-]?[0-9]+ {
@@ -97,7 +121,7 @@ typedef BookshelfParser::Parser::token_type token_type;
     return token::DOUBLE;
 }
 
-[A-Za-z][A-Za-z0-9_/\[\]\-]* {
+[\\]?[\_]*[A-Za-z\~][A-Za-z0-9_/\[\]\-\:\|\~\.\;\\]* {
     yylval->stringVal = new std::string(yytext, yyleng);
     return token::STRING;
 }

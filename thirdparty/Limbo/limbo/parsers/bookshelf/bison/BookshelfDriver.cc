@@ -1,7 +1,7 @@
 /**
  * @file   BookshelfDriver.cc
  * @author Rachel Selina
- * @date   Jan 2021
+ * @date   Jan 2022
  * @brief  Implementation of @ref BookshelfParser::Driver
  */
 
@@ -24,15 +24,20 @@ Driver::Driver(BookshelfDataBase& db)
       //m_plFlag(false)
 {
     m_net.reset();
-    //m_row.reset();
-    //m_routeInfo.reset();
+    m_carry.reset();
+    m_site.reset();
+    m_rsrc.reset();
+    m_siteout.reset();
+    m_lutfract.reset();
     m_vBookshelfFiles.clear(); ///< store bookshelf files except .aux 
     m_libFile.clear();
     m_sclFile.clear();
     m_nodeFile.clear();
+    m_ccFile.clear();
     m_netFile.clear();
     m_plFile.clear();
     m_wtFile.clear();
+    m_lcFile.clear();
 
 }
 
@@ -155,6 +160,23 @@ void Driver::netEntryCbk()
     m_net.reset();
 }
 
+//.cc file
+void Driver::addCarryCbk(const std::string& name, int n)
+{
+    m_carry.name = name;
+    m_carry.elCount = n;
+    m_carry.elements.clear();
+}
+void Driver::addCarryNodeCbk(std::string& nodeName)
+{
+    m_carry.elements.push_back(nodeName);
+}
+void Driver::carryEntryCbk()
+{
+    m_db.add_bookshelf_carry(m_carry);
+    m_carry.reset();
+}
+
 // .pl file 
 void Driver::plNodeEntryCbk(const std::string& node_name, double x, double y, int z)
 {
@@ -169,30 +191,50 @@ void Driver::plNodeEntryCbk(const std::string& node_name, double x, double y, in
 //    m_db.set_bookshelf_node_position(node_name, x, y, orient, "", m_plFlag);
 //}
 // .scl file 
+/// @brief from .scl file, site name
+void Driver::addSiteName(const std::string& name)
+{
+    //std::cout << "addSiteName: " << name << std::endl;
+    m_site.name = name;
+}
+/// @brief from .scl file, site resource and count 
+void Driver::addSiteRsrc(const std::string& name, int count)
+{
+    //std::cout << "addSiteRsrc: " << name << " " << count << std::endl;
+    m_site.rsrcs.push_back(std::make_pair(name, count));
+}
+/// @brief from .scl file, end of site info
+void Driver::endSiteInfo()
+{
+    //std::cout << "endSiteInfo: " << m_site.rsrcs.size() << std::endl;
+    m_db.add_site(m_site);
+    m_site.reset();
+}
+/// @brief from .scl file, site name
+void Driver::addRsrcName(const std::string& name)
+{
+    //std::cout << "addRsrcName: " << name << std::endl;
+    m_rsrc.name = name;
+    if (m_rsrc.rsrcCells.size() > 0)
+    {
+        m_db.add_rsrc(m_rsrc);
+        m_rsrc.reset();
+    }
+}
+/// @brief from .scl file, site inst 
+void Driver::addRsrcInst(const std::string& inst)
+{
+    //std::cout << "addRsrcInst: " << inst << std::endl;
+    m_rsrc.rsrcCells.push_back(inst);
+}
 /// @brief from .scl file, xh and yh
 void Driver::routeGridCbk(int numGridX, int numGridY)
 {
     m_db.resize_sites(numGridX, numGridY);
 } 
-void Driver::setSiteTypeToSliceLCbk(int xIdx, int yIdx)
+void Driver::setSiteType(int xIdx, int yIdx, const std::string& name)
 {
-    m_db.site_info_update(xIdx, yIdx, 1);
-}
-void Driver::setSiteTypeToSliceMCbk(int xIdx, int yIdx)
-{
-    m_db.site_info_update(xIdx, yIdx, 1);
-}
-void Driver::setSiteTypeToDspCbk(int xIdx, int yIdx)
-{
-    m_db.site_info_update(xIdx, yIdx, 2);
-}
-void Driver::setSiteTypeToRamCbk(int xIdx, int yIdx)
-{
-    m_db.site_info_update(xIdx, yIdx, 3);
-}
-void Driver::setSiteTypeToIoCbk(int xIdx, int yIdx)
-{
-    m_db.site_info_update(xIdx, yIdx, 4);
+    m_db.site_info_update(xIdx, yIdx, name);
 }
 void Driver::initClockRegionsCbk(int xReg, int yReg)
 {
@@ -366,6 +408,10 @@ void Driver::addCellOutputPinCbk(std::string& pName)
 {
     m_db.add_output_pin(pName);
 }
+void Driver::addCellOutputADDPinCbk(std::string& pName)
+{
+    m_db.add_output_add_pin(pName);
+}
 void Driver::addCellClockPinCbk(std::string& pName)
 {
     m_db.add_clk_pin(pName);
@@ -373,6 +419,145 @@ void Driver::addCellClockPinCbk(std::string& pName)
 void Driver::addCellCtrlPinCbk(std::string& pName)
 {
     m_db.add_ctrl_pin(pName);
+}
+void Driver::addCellInputADDPinCbk(std::string& pName)
+{
+    m_db.add_input_add_pin(pName);
+}
+/// .lc file 
+/// @brief from .lc file, site column type
+void Driver::setSitePerColumn(int val)
+{
+    m_db.set_site_per_column(val);
+}
+/// @brief from .lc file, site dimension entry
+void Driver::addSiteDimensions(const std::string& name, double w, double h)
+{
+    //std::cout << "addSiteDimensions: " << name << " " << w << " " << h << std::endl;
+    m_db.set_site_dimensions(name, w, h);
+}
+/// @brief from .lc file, site element entry
+void Driver::addSliceElement(const std::string& name, int count)
+{
+    //std::cout << "addSliceElement: " << name << " " << count << std::endl;
+    m_db.set_slice_element(name, count);
+}
+/// @brief from .lc file, cell dimensions entry
+void Driver::addCellDimensions(const std::string& name, double w, double h)
+{
+    //std::cout << "addCellDimensions: " << name << " " << w << " " << h << std::endl;
+    m_db.set_cell_dimensions(name, w, h);
+}
+/// @brief from .lc file, lut max shared
+void Driver::setLUTMaxShared(int maxShared)
+{
+    //std::cout << "setLUTMaxShared: " << maxShared << std::endl;
+    m_db.set_lut_max_shared(maxShared);
+}
+/// @brief from .lc file, lut type in sliceUnit
+void Driver::setLUTTypeInSliceUnit(int type)
+{
+    //std::cout << "setLUTTypeInSliceUnit: " << type << std::endl;
+    m_db.set_lut_type_in_sliceUnit(type);
+}
+/// @brief from .lc file, lut fract name
+void Driver::addLUTFractName(const std::string& name)
+{
+    //std::cout << "addLUTFractName: " << name << std::endl;
+    m_lutfract.name = name;
+    if (m_lutfract.fractCells.size() > 0)
+    {
+        m_db.set_lut_fractureability(m_lutfract);
+        m_lutfract.reset();
+    }
+    //std::cout << "End of addLUTFractName" << std::endl;
+}
+/// @brief from .lc file, lut fract name
+void Driver::addLUTFractInst(const std::string& inst)
+{
+    //std::cout << "addLUTFractInst: " << inst << std::endl;
+    m_lutfract.fractCells.push_back(inst);
+}
+/// @brief from .lc file, ff slice mode
+void Driver::setSliceFFMode(const std::string& mode)
+{
+    //std::cout << "setSliceFFMode: " << mode << std::endl;
+    m_db.set_sliceFF_ctrl_mode(mode);
+}
+/// @brief from .lc file, ff slice ctrl signals 
+void Driver::addSliceFFCtrl(const std::string& name, int count)
+{
+    //std::cout << "addSliceFFCtrl: " << name << " " << count << std::endl;
+    m_db.set_sliceFF_ctrl(name, count);
+}
+/// @brief from .lc file, ff slice unit ctrl signals 
+void Driver::addSliceUnitFFCtrl(const std::string& name, int count)
+{
+    //std::cout << "addSliceUnitFFCtrl: " << name << " " << count << std::endl;
+    m_db.set_sliceUnitFF_ctrl(name, count);
+}
+/// @brief from .lc file, FF Ctrls type
+void Driver::setFFCtrlType(const std::string& type)
+{
+    m_db.set_FFCtrl_type(type);
+}
+/// @brief from .lc file, wl weight
+void Driver::addWLWeightX(double weight)
+{
+    //std::cout << "addWLWeightX: " << weight << std::endl;
+    m_db.set_wl_weight_x(weight);
+}
+void Driver::addWLWeightY(double weight)
+{
+    //std::cout << "addWLWeightY: " << weight << std::endl;
+    m_db.set_wl_weight_y(weight);
+}
+/// @brief from .lc file, route cap
+void Driver::addPinRouteCap(int value)
+{
+    //std::cout << "addPinRouteCap: " << value << std::endl;
+    m_db.set_pin_route_cap(value);
+}
+void Driver::addRouteCapH(int value)
+{
+    //std::cout << "addRouteCapH: " << value << std::endl;
+    m_db.set_route_cap_H(value);
+}
+void Driver::addRouteCapV(int value)
+{
+    //std::cout << "addRouteCapV: " << value << std::endl;
+    m_db.set_route_cap_V(value);
+}
+/// @brief from .lc file, site out value 
+void Driver::addSiteOutS(int value)
+{
+    //std::cout << "addSiteOutS: " << value << std::endl;
+    m_siteout.coordinate = "s";
+    m_siteout.value = value;
+
+    if (m_siteout.siteTypes.size() > 0)
+    {
+        m_db.set_siteOut(m_siteout);
+        m_siteout.reset();
+    }
+}
+void Driver::addSiteOutZ(int value)
+{
+    //std::cout << "addSiteOutZ: " << value << std::endl;
+    m_siteout.coordinate = "z";
+    m_siteout.value = value;
+
+    if (m_siteout.siteTypes.size() > 0)
+    {
+        m_db.set_siteOut(m_siteout);
+        m_siteout.reset();
+    }
+}
+/// @brief from .lc file, site out type 
+void Driver::addSiteOutType(const std::string& type)
+{
+    //std::cout << "addSiteOutType: " << type << std::endl;
+    m_siteout.siteTypes.push_back(type);
 }
 // .aux file 
 void Driver::auxCbk(std::string& design_name, vector<std::string>& vBookshelfFiles)
@@ -403,6 +588,13 @@ void Driver::setNodeFileCbk(const std::string &str)
     m_vBookshelfFiles.push_back(str);
 }
 
+void Driver::setCCFileCbk(const std::string &str)
+{
+    //std::cout << "CC File: " << str << std::endl; 
+    m_ccFile = str;
+    m_vBookshelfFiles.push_back(str);
+}
+
 void Driver::setNetFileCbk(const std::string &str)
 {
     //std::cout << "Net File: " << str << std::endl; 
@@ -421,6 +613,13 @@ void Driver::setWtFileCbk(const std::string &str)
 {
     //std::cout << "Wt File: " << str << std::endl; 
     m_wtFile = str;
+    m_vBookshelfFiles.push_back(str);
+}
+
+void Driver::setLcFileCbk(const std::string &str)
+{
+    //std::cout << "Lc File: " << str << std::endl; 
+    m_lcFile = str;
     m_vBookshelfFiles.push_back(str);
 }
 
@@ -467,31 +666,6 @@ bool read(BookshelfDataBase& db, const std::string& auxFile)
     std::string auxPath = limbo::get_file_path(auxFile);
     //std::cout << "There are " << std::to_string(driverAux.bookshelfFiles().size()) << " files in bookshelf" << std::endl;
 
-    // (visit_order, index)
-    //vector<std::pair<int, int> > vOrder (driverAux.bookshelfFiles().size());
-    //for (unsigned i = 0; i < vOrder.size(); ++i)
-    //{
-    //    std::string const& filename = driverAux.bookshelfFiles().at(i);
-    //    std::string suffix = limbo::get_file_suffix(filename);
-    //    if (limbo::iequals(suffix, "scl"))
-    //        vOrder[i].first = 0;
-    //    else if (limbo::iequals(suffix, "nodes"))
-    //        vOrder[i].first = 1;
-    //    else if (limbo::iequals(suffix, "nets"))
-    //        vOrder[i].first = 2;
-    //    else if (limbo::iequals(suffix, "wts"))
-    //        vOrder[i].first = 3;
-    //    else if (limbo::iequals(suffix, "pl"))
-    //        vOrder[i].first = 4;
-    //    else if (limbo::iequals(suffix, "lib"))
-    //        vOrder[i].first = 5;
-    //    else 
-    //        vOrder[i].first = vOrder.size();
-    //    vOrder[i].second = i;
-    //}
-    //// order by visit_order 
-    //std::sort(vOrder.begin(), vOrder.end(), SortByPairFirst());
-
     // start parsing 
     //for (vector<std::pair<int, int> >::const_iterator it = vOrder.begin(); it != vOrder.end(); ++it)
     //{
@@ -508,8 +682,42 @@ bool read(BookshelfDataBase& db, const std::string& auxFile)
     //    if (!flag)
     //        return false;
     //}
-    for (auto file : {driverAux.libFile(), driverAux.sclFile(), driverAux.nodeFile(), driverAux.plFile(), driverAux.netFile()})
+
+    //Include mandatory files first
+    std::vector<std::string> input_bookshelf_files = {driverAux.libFile(), driverAux.sclFile()};
+
+    //design.lc file is required
+    if (driverAux.lcFile() == "")
     {
+        std::cerr << "Missing design.lc file - Required for generic tool version" << std::endl;
+        //exit(0);
+        return false;
+    } else
+    {
+        input_bookshelf_files.emplace_back(driverAux.lcFile());
+    }
+
+    input_bookshelf_files.emplace_back(driverAux.nodeFile());
+    input_bookshelf_files.emplace_back(driverAux.plFile());
+
+    //cc file is optional
+    if (driverAux.ccFile() != "")
+    {
+        input_bookshelf_files.emplace_back(driverAux.ccFile());
+    }
+
+    //Net files is mandatory
+    input_bookshelf_files.emplace_back(driverAux.netFile());
+
+    //for (auto file : {driverAux.libFile(), driverAux.sclFile(), driverAux.lcFile(), driverAux.nodeFile(), driverAux.plFile(), driverAux.ccFile(), driverAux.netFile()})
+    for (auto file : input_bookshelf_files)
+    {
+        //Update node information before nets when cc is available
+        if (file == driverAux.netFile())
+        {
+            db.update_nodes();
+        }
+
         std::string path = auxPath + "/" + file;
         std::cout << "Parsing File " << path << std::endl;
         ifs.open(path);
@@ -520,6 +728,9 @@ bool read(BookshelfDataBase& db, const std::string& auxFile)
         }
         driverAux.parse_stream(ifs);
         ifs.close();
+        ////DBG
+        //std::cout << " Completed parsing " << file << std::endl;
+        ////DBG
     }
 
     //Parse bookshelf files in order

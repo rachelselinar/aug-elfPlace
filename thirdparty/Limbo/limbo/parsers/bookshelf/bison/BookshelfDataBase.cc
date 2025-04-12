@@ -23,9 +23,9 @@ void BookshelfDataBase::resize_sites(int xSize, int ySize)
     bookshelf_user_cbk_reminder(__func__); 
 }
 
-void BookshelfDataBase::site_info_update(int xloc, int yloc, int val)
+void BookshelfDataBase::site_info_update(int xloc, int yloc, string const& name)
 {
-    cerr << "Bookshelf has site (" << xloc << ", " << yloc << ") of type " << val << endl; 
+    cerr << "Bookshelf has site (" << xloc << ", " << yloc << ") of type " << name << endl; 
     bookshelf_user_cbk_reminder(__func__); 
 }
 
@@ -37,7 +37,7 @@ void BookshelfDataBase::add_clk_region(string const& name, int xh, int yh, int x
 
 void BookshelfDataBase::add_lib_cell(string const& name)
 {
-    cerr << "Bookshelf has macro " << name << endl;
+    cerr << "Bookshelf has library cell: " << name << endl;
     bookshelf_user_cbk_reminder(__func__); 
 }
 

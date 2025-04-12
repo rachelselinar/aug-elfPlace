@@ -28,7 +28,6 @@ dreamplacefpga/__pycache__
 *.lai
 *.la
 *.a
-*.lib
 
 # Executables
 *.exe

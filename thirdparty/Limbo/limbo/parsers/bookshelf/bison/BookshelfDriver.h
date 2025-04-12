@@ -2,7 +2,7 @@
  * @file   BookshelfDriver.h
  * @brief  Driver for Bookshelf parser 
  * @author Rachel Selina
- * @date   Jan 2021
+ * @date   Jan 2022
  */
 
 #ifndef BOOKSHELFPARSER_DRIVER_H
@@ -102,22 +102,31 @@ public:
     void addPinCbk(std::string& nodeName, std::string& pinName);
     /// @brief from .nets file, net entry 
     void netEntryCbk();
+    /// .cc file 
+    ///@brief from .cc file, carry chain entry
+    void addCarryCbk(const std::string& name, int n);
+    ///@brief from .cc file, carryNode entry
+    void addCarryNodeCbk(std::string& nodeName);
+    /// @brief from .cc file, carry chain entry 
+    void carryEntryCbk();
     /// .pl file 
     /// @brief from .pl file, node entry in placement 
     void plNodeEntryCbk(const std::string& node_name, double x, double y, int z);
     /// .scl file 
+    /// @brief from .scl file, site name
+    void addSiteName(const std::string& name);
+    /// @brief from .scl file, site resource and count 
+    void addSiteRsrc(const std::string& name, int count);
+    /// @brief from .scl file, end of site info
+    void endSiteInfo();
+    /// @brief from .scl file, rsrc name
+    void addRsrcName(const std::string& name);
+    /// @brief from .scl file, rsrc inst 
+    void addRsrcInst(const std::string& inst);
     /// @brief from .scl file, xh and yh
     void routeGridCbk(int numGridX, int numGridY); 
-    /// @brief from .scl file, add site (x, y) as SLICEL
-    void setSiteTypeToSliceLCbk(int xIdx, int yIdx); 
-    /// @brief from .scl file, add site (x, y) as SLICEM
-    void setSiteTypeToSliceMCbk(int xIdx, int yIdx); 
-    /// @brief from .scl file, add site (x, y) as DSP 
-    void setSiteTypeToDspCbk(int xIdx, int yIdx); 
-    /// @brief from .scl file, add site (x, y) as RAM 
-    void setSiteTypeToRamCbk(int xIdx, int yIdx); 
-    /// @brief from .scl file, add site (x, y) as IO 
-    void setSiteTypeToIoCbk(int xIdx, int yIdx); 
+    /// @brief from .scl file, add site (x, y)
+    void setSiteType(int xIdx, int yIdx, const std::string& name); 
     /// @brief from .scl file, initialize clock region information
     void initClockRegionsCbk(int xReg, int yReg); 
     /// @brief from .scl file, add clock region information
@@ -131,10 +140,51 @@ public:
     void addCellInputPinCbk(std::string& pName);
     /// @brief from .lib file, lib cell output pin entry
     void addCellOutputPinCbk(std::string& pName);
+    /// @brief from .lib file, lib cell output pin entry
+    void addCellOutputADDPinCbk(std::string& pName);
     /// @brief from .lib file, lib cell clk pin entry
     void addCellClockPinCbk(std::string& pName);
     /// @brief from .lib file, lib cell ctrl pin entry
     void addCellCtrlPinCbk(std::string& pName);
+    /// @brief from .lib file, lib cell ctrl pin entry
+    void addCellInputADDPinCbk(std::string& pName);
+    /// .lc file 
+    /// @brief from .lc file, site column type
+    void setSitePerColumn(int val);
+    /// @brief from .lc file, site dimensions entry
+    void addSiteDimensions(const std::string& name, double w, double h);
+    /// @brief from .lc file, site element entry
+    void addSliceElement(const std::string& name, int count);
+    /// @brief from .lc file, cell dimensions entry
+    void addCellDimensions(const std::string& name, double w, double h);
+    /// @brief from .lc file, lut max shared
+    void setLUTMaxShared(int maxShared);
+    /// @brief from .lc file, lut type in sliceUnit
+    void setLUTTypeInSliceUnit(int type);
+    /// @brief from .lc file, lut fract name
+    void addLUTFractName(const std::string& name);
+    /// @brief from .lc file, lut fract name
+    void addLUTFractInst(const std::string& inst);
+    /// @brief from .lc file, ff slice mode
+    void setSliceFFMode(const std::string& mode);
+    /// @brief from .lc file, ff slice ctrl signals 
+    void addSliceFFCtrl(const std::string& name, int count);
+    /// @brief from .lc file, ff slice unit ctrl signals 
+    void addSliceUnitFFCtrl(const std::string& name, int count);
+    /// @brief from .lc file, site column type
+    void setFFCtrlType(const std::string& type);
+    /// @brief from .lc file, wl weight
+    void addWLWeightX(double weight);
+    void addWLWeightY(double weight);
+    /// @brief from .lc file, route cap
+    void addPinRouteCap(int value);
+    void addRouteCapH(int value);
+    void addRouteCapV(int value);
+    /// @brief from .lc file, site out value 
+    void addSiteOutS(int value);
+    void addSiteOutZ(int value);
+    /// @brief from .lc file, site out type 
+    void addSiteOutType(const std::string& type);
 
     /// @brief control m_plFlag
     /// @param flag control flag 
@@ -231,9 +281,11 @@ public:
     void setLibFileCbk(const std::string &str);
     void setSclFileCbk(const std::string &str);
     void setNodeFileCbk(const std::string &str);
+    void setCCFileCbk(const std::string &str);
     void setNetFileCbk(const std::string &str);
     void setPlFileCbk(const std::string &str);
     void setWtFileCbk(const std::string &str);
+    void setLcFileCbk(const std::string &str);
 
     /// get all bookshelf files except .aux 
     /// @return bookshelf files except .aux 
@@ -241,20 +293,27 @@ public:
     string const& libFile() const {return m_libFile;}
     string const& sclFile() const {return m_sclFile;}
     string const& nodeFile() const {return m_nodeFile;}
+    string const& ccFile() const {return m_ccFile;}
     string const& netFile() const {return m_netFile;}
     string const& plFile() const {return m_plFile;}
     string const& wtFile() const {return m_wtFile;}
+    string const& lcFile() const {return m_lcFile;}
 protected:
 	Net m_net; ///< temporary storage of net 
-	//Row m_row; ///< temporary storage of row 
-    //RouteInfo m_routeInfo; ///< temporary storage of routing information 
+    Site m_site; ///< temporary storage of site
+    Rsrc m_rsrc; ///< temporary storage of rsrc 
+	CarryChain m_carry; ///< temporary storage of carry chain
+    LUTFract m_lutfract; ///< temporary storage of lutfract 
+    SiteOut m_siteout; ///< temporary storage of siteout
     vector<string> m_vBookshelfFiles; ///< store bookshelf files except .aux 
     string m_libFile;
     string m_sclFile;
     string m_nodeFile;
+    string m_ccFile;
     string m_netFile;
     string m_plFile;
     string m_wtFile;
+    string m_lcFile;
     //bool m_plFlag; ///< if true, indicate that only reads .pl file, this will result in different callbacks in the database 
 };
 
