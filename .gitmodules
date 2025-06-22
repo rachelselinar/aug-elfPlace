@@ -1,15 +1,12 @@
 [submodule "thirdparty/munkres-cpp"]
 	path = thirdparty/munkres-cpp
 	url = https://github.com/saebyn/munkres-cpp.git
-[submodule "thirdparty/cub"]
-	path = thirdparty/cub
-	url = https://github.com/NVIDIA/cub.git
 [submodule "thirdparty/pybind11"]
 	path = thirdparty/pybind11
 	url = https://github.com/pybind/pybind11.git
-[submodule "thirdparty/thirdparty/munkres-cpp"]
-	path = thirdparty/thirdparty/munkres-cpp
-	url = https://github.com/saebyn/munkres-cpp.git
-[submodule "thirdparty/thirdparty/cub"]
-	path = thirdparty/thirdparty/cub
+[submodule "thirdparty/cub"]
+	path = thirdparty/cub
 	url = https://github.com/NVIDIA/cub.git
+[submodule "thirdparty/fpga-interchange-schema"]
+	path = thirdparty/fpga-interchange-schema
+	url = https://github.com/chipsalliance/fpga-interchange-schema.git
